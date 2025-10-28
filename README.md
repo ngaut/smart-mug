@@ -66,23 +66,72 @@ python3 -m http.server 8080
 - JPG, PNG, GIF
 - Any size (automatically resized to 48×12)
 
-### Processing Options
-- **Algorithm:**
-  - Floyd-Steinberg Dithering (best for photos)
-  - Simple Threshold (best for logos/text)
-- **Threshold:** Adjustable 0-255 (default 128)
-- **Aspect Ratio:** Maintain or stretch
+### Dithering Algorithms
 
-### Workflow
+**🎬 Temporal (Animated - Recommended for best quality!):**
+- **Temporal PWM** - Creates perceived grayscale through frame animation (4 frames)
+- **Temporal + Floyd-Steinberg** - Hybrid approach for highest quality
+
+**📸 Spatial (Single Frame):**
+- **Floyd-Steinberg** - Error diffusion, best for photos
+- **Atkinson** - Cleaner, less noise than Floyd-Steinberg
+- **Ordered/Bayer** - Pattern-based, good for textures
+- **Simple Threshold** - Fast, best for logos/text
+
+### Image Enhancement
+- **Auto-Contrast** - Automatic histogram equalization
+- **Brightness** - Adjust -100 to +100
+- **Contrast** - Adjust -100 to +100
+- **Sharpening** - Enhance edges (0 to 2.0)
+- **Threshold** - Binary cutoff (0-255)
+- **Aspect Ratio** - Maintain or stretch
+
+### Temporal Dithering Workflow (NEW!)
+
+**Creates perceived grayscale from 1-bit display using animation:**
+
+1. Select "Temporal PWM" or "Temporal + Floyd-Steinberg" algorithm
+2. Upload and process image
+3. **Watch animated preview** - Shows perceived grayscale at 20 FPS
+4. Adjust FPS slider (5-60 FPS) to see different speeds
+5. **Choose workflow:**
+
+   **Option A: Best Single Frame (Recommended)**
+   - Watch animation to identify best-looking frame
+   - Click "Send Frame X" button for that specific frame
+   - Get best static image on device
+
+   **Option B: Device Animation (Experimental)**
+   - Click "🎬 Send Animation to Device (Loop)"
+   - Frames cycle on device (~35 second cycle)
+   - ⚠️ Too slow for perceived grayscale (BLE limitation)
+   - But demonstrates frame cycling capability
+
+**How Temporal Dithering Works:**
+- Generates 4 frames with different brightness thresholds
+- Bright pixels ON in all frames (100% duty cycle → appears bright)
+- Medium pixels ON in half frames (50% duty cycle → appears medium gray)
+- Dark pixels ON in few frames (25% duty cycle → appears dark)
+- When cycled rapidly, eye perceives smooth grayscale!
+
+**Browser vs Device:**
+- **Browser Preview**: 20 FPS → Beautiful perceived grayscale ✨
+- **Device**: 0.15 FPS → Individual frames visible, not grayscale ⚠️
+- **Limitation**: BLE too slow (needs 15+ FPS for temporal effect)
+
+See [TEMPORAL_DITHERING_REVIEW.md](TEMPORAL_DITHERING_REVIEW.md) for technical details.
+
+### Standard Workflow
 1. Click "Choose File" and select image
-2. Adjust algorithm and threshold
+2. Choose algorithm and adjust enhancement settings
 3. Click "Process & Preview"
-4. Review processed result
-5. Click "Apply to Editor" to load into pixel grid
-6. Optionally edit manually with drawing tools
-7. Click "Send to Cup" to transfer to device
+4. Review processed result and image quality analysis
+5. For temporal: Watch animation, select best frame
+6. Click "Apply to Editor" to load into pixel grid (optional)
+7. Optionally edit manually with drawing tools
+8. Click "Send Frame X" or "Send to Cup" to transfer to device
 
-**Note:** Image sending takes 15-30 seconds. Be patient and wait for confirmation.
+**Note:** Image sending takes 15-30 seconds per frame. Be patient and wait for confirmation.
 
 ## BLE Protocol
 
@@ -104,9 +153,10 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 ## Known Limitations
 
 1. **Device Response Time:** Image commands take 15-30 seconds to process
-2. **No Generic Access Service:** Device doesn't expose standard Generic Access service (handled gracefully)
-3. **BLE Timeout:** Devices may auto-disconnect after inactivity (manual reconnect required)
-4. **Production Build:** Tailwind CDN should be replaced with npm installation for production
+2. **Temporal Dithering Speed:** Device animation too slow (~0.15 FPS) for perceived grayscale (needs 15+ FPS). Browser preview demonstrates ideal result.
+3. **No Generic Access Service:** Device doesn't expose standard Generic Access service (handled gracefully)
+4. **BLE Timeout:** Devices may auto-disconnect after inactivity (manual reconnect required)
+5. **Production Build:** Tailwind CDN should be replaced with npm installation for production
 
 ## Troubleshooting
 
@@ -150,14 +200,28 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 
 ## Future Improvements
 
+### Completed ✅
+- [x] Multiple dithering algorithms (Floyd-Steinberg, Atkinson, Ordered, Threshold, Temporal)
+- [x] Brightness/contrast/sharpening adjustments
+- [x] Temporal dithering with animated preview
+- [x] Progress indicator for frame sending
+- [x] Image quality analysis with suggestions
+
+### Planned for Device Animation
+- [ ] **Faster BLE Protocol** - Compress/pipeline frame data
+- [ ] **Device Firmware Update** - Buffer multiple frames internally
+- [ ] **Device-Side Animation** - Send all frames once, device cycles autonomously
+- [ ] **Delta Encoding** - Only send pixel differences between frames
+- [ ] **Smart Frame Selection** - Auto-identify best single frame
+
+### General Improvements
 - [ ] Connection keepalive to prevent auto-disconnect
 - [ ] Auto-reconnect on disconnection
-- [ ] Progress indicator for image sending
 - [ ] Built-in icon library
 - [ ] Image history/favorites
-- [ ] Multiple dithering algorithms
-- [ ] Brightness/contrast adjustments
 - [ ] Installation as PWA
+- [ ] Perceptual dithering (more detail where eye looks)
+- [ ] Edge-aware dithering (preserve edges, dither smooth areas)
 
 ## License
 
