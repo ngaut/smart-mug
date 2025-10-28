@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SGUAI Smart Cup</title>
+    <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-blue-600">SGUAI Smart Cup</h1>
+            <p class="text-gray-600">Connect and control your smart cup</p>
+        </header>
+
+        <!-- Device Connection Panel -->
+        <div id="connectionPanel" class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Device Connection</h2>
+            <div class="flex items-center space-x-4">
+                <button id="connectButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Connect to Device
+                </button>
+                <div id="deviceStatus" class="text-gray-600">
+                    Not connected
+                </div>
+            </div>
+            <div id="errorMessage" class="mt-2 text-red-500 hidden"></div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="mainContent" class="hidden">
+            <div class="flex flex-col md:flex-row gap-6">
+                <!-- Navigation Sidebar -->
+                <div class="md:w-1/4">
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <h2 class="text-lg font-semibold mb-4">Functions</h2>
+                        <ul id="functionList" class="space-y-2">
+                            <li>
+                                <button id="versionBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Read Version</button>
+                            </li>
+                            <li>
+                                <button id="temperatureBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Read Temperature</button>
+                            </li>
+                            <li>
+                                <button id="greetingBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Greeting Message</button>
+                            </li>
+                            <li>
+                                <button id="dynamicModeBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Dynamic Mode</button>
+                            </li>
+                            <li>
+                                <button id="imageEditorBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Static Image</button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Function Content Area -->
+                <div class="md:w-3/4">
+                    <div id="functionContent" class="bg-white rounded-lg shadow-md p-6">
+                        <!-- Content will be loaded here based on selection -->
+                        <div id="welcomeMessage" class="text-center py-12">
+                            <h2 class="text-2xl font-semibold mb-2">Welcome to SGUAI App</h2>
+                            <p class="text-gray-600">Select a function from the sidebar to get started</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load scripts in order -->
+    <script src="js/ble.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/imageEditor.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
