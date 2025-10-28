@@ -554,6 +554,15 @@ async function processUploadedImage() {
     processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
     processedCtx.drawImage(result.preview, 0, 0, 384, 96);
 
+    // Handle temporal animation if applicable
+    if (result.isTemporal) {
+      setupTemporalAnimation(result);
+    } else {
+      // Hide temporal controls for non-temporal algorithms
+      document.getElementById('temporalControls').classList.add('hidden');
+      stopTemporalAnimation();
+    }
+
     // Display image analysis results
     if (result.analysis) {
       const analysisStats = document.getElementById('analysisStats');
@@ -611,6 +620,280 @@ function applyProcessedImageToEditor() {
     console.error('Failed to apply image:', error);
     showToast(`Failed to apply image: ${error.message}`, 'error');
   }
+}
+
+// Temporal Animation Management
+let temporalAnimationState = {
+  isPlaying: false,
+  currentFrame: 0,
+  intervalId: null,
+  fps: 20,
+  frameData: null
+};
+
+function setupTemporalAnimation(result) {
+  // Store frame data
+  temporalAnimationState.frameData = result.frames;
+  temporalAnimationState.currentFrame = 0;
+
+  // Show temporal controls
+  const temporalControls = document.getElementById('temporalControls');
+  temporalControls.classList.remove('hidden');
+
+  // Update frame display
+  updateFrameDisplay();
+
+  // Create frame selection buttons
+  const frameButtons = document.getElementById('frameButtons');
+  frameButtons.innerHTML = '';
+  result.frames.forEach((frame, index) => {
+    const btn = document.createElement('button');
+    btn.textContent = `Frame ${index + 1}`;
+    btn.className = `px-3 py-1 rounded text-sm ${index === 0 ? 'bg-blue-500 text-white' : 'bg-gray-200 hover:bg-gray-300'}`;
+    btn.onclick = () => selectFrame(index);
+    frameButtons.appendChild(btn);
+  });
+
+  // Create send frame buttons
+  const sendFrameButtons = document.getElementById('sendFrameButtons');
+  sendFrameButtons.innerHTML = '';
+  result.frames.forEach((frame, index) => {
+    const btn = document.createElement('button');
+    btn.textContent = `Send Frame ${index + 1}`;
+    btn.className = 'bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded text-xs';
+    btn.onclick = () => sendTemporalFrame(index);
+    sendFrameButtons.appendChild(btn);
+  });
+
+  // Set up animation controls
+  document.getElementById('playAnimationBtn').onclick = startTemporalAnimation;
+  document.getElementById('pauseAnimationBtn').onclick = pauseTemporalAnimation;
+  document.getElementById('fpsSlider').oninput = (e) => {
+    temporalAnimationState.fps = parseInt(e.target.value);
+    document.getElementById('fpsValue').textContent = e.target.value;
+    // Restart animation if playing to apply new FPS
+    if (temporalAnimationState.isPlaying) {
+      stopTemporalAnimation();
+      startTemporalAnimation();
+    }
+  };
+
+  // Set up device animation controls
+  document.getElementById('sendAnimationBtn').onclick = sendAnimationToDevice;
+  document.getElementById('stopAnimationBtn').onclick = stopAnimationToDevice;
+
+  // Auto-start animation
+  setTimeout(() => startTemporalAnimation(), 500);
+}
+
+function selectFrame(frameIndex) {
+  if (!temporalAnimationState.frameData) return;
+
+  temporalAnimationState.currentFrame = frameIndex;
+  updateFrameDisplay();
+  renderCurrentFrame();
+
+  // Update frame button styling
+  const frameButtons = document.getElementById('frameButtons').children;
+  Array.from(frameButtons).forEach((btn, idx) => {
+    if (idx === frameIndex) {
+      btn.className = 'px-3 py-1 rounded text-sm bg-blue-500 text-white';
+    } else {
+      btn.className = 'px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300';
+    }
+  });
+}
+
+function renderCurrentFrame() {
+  if (!temporalAnimationState.frameData) return;
+
+  const frame = temporalAnimationState.frameData[temporalAnimationState.currentFrame];
+  const processedCanvas = document.getElementById('processedPreview');
+  const ctx = processedCanvas.getContext('2d');
+
+  // Draw the frame
+  ctx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
+  ctx.drawImage(frame.preview, 0, 0, 384, 96);
+}
+
+function startTemporalAnimation() {
+  if (!temporalAnimationState.frameData || temporalAnimationState.isPlaying) return;
+
+  temporalAnimationState.isPlaying = true;
+  document.getElementById('playAnimationBtn').classList.add('hidden');
+  document.getElementById('pauseAnimationBtn').classList.remove('hidden');
+
+  // Calculate interval from FPS
+  const interval = 1000 / temporalAnimationState.fps;
+
+  temporalAnimationState.intervalId = setInterval(() => {
+    // Advance to next frame
+    temporalAnimationState.currentFrame =
+      (temporalAnimationState.currentFrame + 1) % temporalAnimationState.frameData.length;
+
+    updateFrameDisplay();
+    renderCurrentFrame();
+    selectFrame(temporalAnimationState.currentFrame); // Update button styling
+  }, interval);
+}
+
+function pauseTemporalAnimation() {
+  stopTemporalAnimation();
+  document.getElementById('playAnimationBtn').classList.remove('hidden');
+  document.getElementById('pauseAnimationBtn').classList.add('hidden');
+}
+
+function stopTemporalAnimation() {
+  temporalAnimationState.isPlaying = false;
+  if (temporalAnimationState.intervalId) {
+    clearInterval(temporalAnimationState.intervalId);
+    temporalAnimationState.intervalId = null;
+  }
+}
+
+function updateFrameDisplay() {
+  if (!temporalAnimationState.frameData) return;
+
+  const display = document.getElementById('currentFrameDisplay');
+  display.textContent = `Frame ${temporalAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length}`;
+}
+
+async function sendTemporalFrame(frameIndex) {
+  if (!temporalAnimationState.frameData) {
+    showToast('No frame data available', 'warning');
+    return;
+  }
+
+  if (!isConnected) {
+    showToast('Device not connected', 'warning');
+    return;
+  }
+
+  try {
+    showToast(`Sending frame ${frameIndex + 1}...`, 'info');
+
+    const frame = temporalAnimationState.frameData[frameIndex];
+    const success = await window.bleManager.setImageData(frame.grid);
+
+    if (success) {
+      showToast(`Frame ${frameIndex + 1} sent successfully!`, 'success');
+    } else {
+      throw new Error('Failed to send frame');
+    }
+  } catch (error) {
+    console.error('Frame send error:', error);
+    showToast(`Failed to send frame ${frameIndex + 1}: ${error.message}`, 'error');
+  }
+}
+
+// Device Animation State
+let deviceAnimationState = {
+  isRunning: false,
+  currentFrame: 0,
+  intervalId: null,
+  startTime: null,
+  frameStartTime: null
+};
+
+async function sendAnimationToDevice() {
+  if (!temporalAnimationState.frameData) {
+    showToast('No frame data available', 'warning');
+    return;
+  }
+
+  if (!isConnected) {
+    showToast('Device not connected', 'warning');
+    return;
+  }
+
+  if (deviceAnimationState.isRunning) {
+    showToast('Animation already running', 'warning');
+    return;
+  }
+
+  // Show stop button, hide send button
+  document.getElementById('sendAnimationBtn').classList.add('hidden');
+  document.getElementById('stopAnimationBtn').classList.remove('hidden');
+
+  // Show progress display
+  document.getElementById('deviceAnimationProgress').classList.remove('hidden');
+
+  deviceAnimationState.isRunning = true;
+  deviceAnimationState.currentFrame = 0;
+  deviceAnimationState.startTime = Date.now();
+
+  showToast('Starting animation on device... (this may take time)', 'info');
+
+  // Function to send next frame in sequence
+  const sendNextFrame = async () => {
+    if (!deviceAnimationState.isRunning) return;
+
+    try {
+      const frame = temporalAnimationState.frameData[deviceAnimationState.currentFrame];
+
+      console.log(`Sending frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} to device...`);
+
+      // Update progress display
+      deviceAnimationState.frameStartTime = Date.now();
+      const totalElapsed = Math.floor((deviceAnimationState.frameStartTime - deviceAnimationState.startTime) / 1000);
+      document.getElementById('deviceAnimationStatus').textContent =
+        `Sending Frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} (Total elapsed: ${totalElapsed}s)`;
+
+      // Send frame to device
+      const success = await window.bleManager.setImageData(frame.grid);
+
+      if (!success) {
+        throw new Error('Failed to send frame');
+      }
+
+      // Show completion for this frame
+      const frameElapsed = Math.floor((Date.now() - deviceAnimationState.frameStartTime) / 1000);
+      console.log(`Frame ${deviceAnimationState.currentFrame + 1} sent successfully in ${frameElapsed}s`);
+
+      // Move to next frame
+      deviceAnimationState.currentFrame =
+        (deviceAnimationState.currentFrame + 1) % temporalAnimationState.frameData.length;
+
+      // Schedule next frame
+      if (deviceAnimationState.isRunning) {
+        // Add delay to let device actually display the frame
+        // Device needs time to process and show the image before receiving next frame
+        // Using 2-3 second delay to ensure visible frame changes
+        const displayDelay = 2000; // 2 seconds display time per frame
+        console.log(`Waiting ${displayDelay}ms before sending next frame...`);
+        document.getElementById('deviceAnimationStatus').textContent =
+          `Frame ${deviceAnimationState.currentFrame}/${temporalAnimationState.frameData.length} displayed (waiting ${displayDelay/1000}s before next)`;
+        deviceAnimationState.intervalId = setTimeout(sendNextFrame, displayDelay);
+      }
+    } catch (error) {
+      console.error('Animation send error:', error);
+      showToast(`Animation error: ${error.message}`, 'error');
+      stopAnimationToDevice();
+    }
+  };
+
+  // Start the animation loop
+  sendNextFrame();
+
+  showToast('Animation loop started! Cycling frames on device...', 'success');
+}
+
+function stopAnimationToDevice() {
+  deviceAnimationState.isRunning = false;
+
+  if (deviceAnimationState.intervalId) {
+    clearTimeout(deviceAnimationState.intervalId);
+    deviceAnimationState.intervalId = null;
+  }
+
+  // Show send button, hide stop button
+  document.getElementById('sendAnimationBtn').classList.remove('hidden');
+  document.getElementById('stopAnimationBtn').classList.add('hidden');
+
+  // Hide progress display
+  document.getElementById('deviceAnimationProgress').classList.add('hidden');
+
+  showToast('Animation stopped', 'info');
 }
 
 // Make functions globally accessible

@@ -180,10 +180,16 @@ function showImageEditorPanel() {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Dithering Algorithm</label>
             <select id="algorithmSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
-              <option value="floyd-steinberg" selected>Floyd-Steinberg (Best for photos)</option>
-              <option value="atkinson">Atkinson (Cleaner, less noise)</option>
-              <option value="ordered">Ordered/Bayer (Pattern-based)</option>
-              <option value="threshold">Simple Threshold (Fast)</option>
+              <optgroup label="🎬 Temporal (Animated - Recommended!)">
+                <option value="temporal">Temporal PWM (4 frames, smooth)</option>
+                <option value="temporal-spatial">Temporal + Floyd-Steinberg (higher quality)</option>
+              </optgroup>
+              <optgroup label="📸 Spatial (Single Frame)">
+                <option value="floyd-steinberg" selected>Floyd-Steinberg (Best for photos)</option>
+                <option value="atkinson">Atkinson (Cleaner, less noise)</option>
+                <option value="ordered">Ordered/Bayer (Pattern-based)</option>
+                <option value="threshold">Simple Threshold (Fast)</option>
+              </optgroup>
             </select>
           </div>
 
@@ -252,6 +258,77 @@ function showImageEditorPanel() {
             <canvas id="processedPreview" class="border border-gray-300" width="384" height="96"></canvas>
           </div>
         </div>
+
+        <!-- Temporal Animation Controls (shown only for temporal algorithms) -->
+        <div id="temporalControls" class="hidden mt-4 p-3 bg-blue-50 rounded border border-blue-200">
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="text-sm font-semibold text-gray-700">🎬 Temporal Animation</h4>
+            <div class="text-xs text-gray-600">
+              <span id="currentFrameDisplay">Frame 1/4</span>
+            </div>
+          </div>
+
+          <!-- Warning Banner -->
+          <div class="mb-3 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
+            <div class="font-semibold text-yellow-800 mb-1">⚠️ Device Speed Limitation</div>
+            <div class="text-yellow-700">
+              Each frame takes 15-30s to transfer via BLE. Device animation will be VERY slow (~1 frame per 20s).
+              <strong>Browser preview shows ideal result.</strong> Consider sending your best single frame instead.
+            </div>
+          </div>
+
+          <!-- Animation Control Buttons -->
+          <div class="flex gap-2 mb-3">
+            <button id="playAnimationBtn" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-3 rounded text-sm">
+              ▶ Play Animation
+            </button>
+            <button id="pauseAnimationBtn" class="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-3 rounded text-sm hidden">
+              ⏸ Pause
+            </button>
+          </div>
+
+          <!-- Frame Rate Control -->
+          <div class="mb-3">
+            <label class="block text-xs text-gray-600 mb-1">Frame Rate: <span id="fpsValue">20</span> FPS</label>
+            <input type="range" id="fpsSlider" min="5" max="60" value="20" class="w-full h-2">
+          </div>
+
+          <!-- Individual Frame Selection -->
+          <div class="mb-3">
+            <label class="block text-xs text-gray-600 mb-2">Select Individual Frame:</label>
+            <div id="frameButtons" class="flex gap-2">
+              <!-- Dynamically populated with frame buttons -->
+            </div>
+          </div>
+
+          <!-- Send Frame Buttons -->
+          <div class="border-t pt-3">
+            <label class="block text-xs text-gray-600 mb-2">Send to Device:</label>
+
+            <!-- Send Animation Button -->
+            <button id="sendAnimationBtn" class="w-full mb-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-2 px-4 rounded">
+              🎬 Send Animation to Device (Loop)
+            </button>
+            <button id="stopAnimationBtn" class="w-full mb-2 bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded hidden">
+              ⏹ Stop Animation
+            </button>
+
+            <!-- Progress Display -->
+            <div id="deviceAnimationProgress" class="hidden mb-3 p-2 bg-purple-100 border border-purple-300 rounded text-xs">
+              <div class="font-semibold text-purple-800 mb-1">Sending to Device...</div>
+              <div id="deviceAnimationStatus" class="text-purple-700">
+                Frame 1/4 (Elapsed: 0s)
+              </div>
+            </div>
+
+            <!-- Individual Frame Buttons -->
+            <label class="block text-xs text-gray-600 mb-2">Or Send Individual Frames:</label>
+            <div id="sendFrameButtons" class="grid grid-cols-2 gap-2">
+              <!-- Dynamically populated with send buttons -->
+            </div>
+          </div>
+        </div>
+
         <button id="applyToEditorBtn" class="w-full mt-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded">
           Apply to Editor
         </button>

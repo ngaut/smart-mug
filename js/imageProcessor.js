@@ -268,7 +268,20 @@ class ImageProcessor {
 
       // Apply dithering algorithm
       let binaryData;
+      let frames = null; // For temporal dithering
+      let isTemporal = false;
+
       switch (algorithm) {
+        case 'temporal':
+          isTemporal = true;
+          frames = this.temporalDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, 4);
+          binaryData = frames[0]; // Use first frame as default
+          break;
+        case 'temporal-spatial':
+          isTemporal = true;
+          frames = this.temporalSpatialDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, 4);
+          binaryData = frames[0]; // Use first frame as default
+          break;
         case 'atkinson':
           binaryData = this.atkinsonDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, threshold);
           break;
@@ -284,13 +297,36 @@ class ImageProcessor {
           break;
       }
 
-      // Convert to grid format
+      // For temporal algorithms, process all frames
+      if (isTemporal && frames) {
+        const frameData = frames.map((frameBinary, index) => ({
+          index,
+          binaryData: frameBinary,
+          grid: this.toGridArray(frameBinary, this.IMAGE_WIDTH, this.IMAGE_HEIGHT),
+          preview: this.createPreviewCanvas(frameBinary, this.IMAGE_WIDTH, this.IMAGE_HEIGHT)
+        }));
+
+        return {
+          isTemporal: true,
+          frames: frameData,
+          numFrames: frames.length,
+          originalImage: img,
+          analysis,
+          // Keep single-frame compatibility
+          grid: frameData[0].grid,
+          preview: frameData[0].preview,
+          binaryData: frameData[0].binaryData
+        };
+      }
+
+      // Convert to grid format (single frame)
       const grid = this.toGridArray(binaryData, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
 
       // Create preview
       const preview = this.createPreviewCanvas(binaryData, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
 
       return {
+        isTemporal: false,
         grid,
         preview,
         originalImage: img,
@@ -557,6 +593,80 @@ class ImageProcessor {
       suggestions,
       quality: hasGoodDistribution && !isLowContrast ? 'good' : 'poor'
     };
+  }
+
+  /**
+   * Temporal dithering - generates multiple frames for animation
+   * Creates perceived grayscale through temporal averaging (PWM for displays)
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} width
+   * @param {number} height
+   * @param {number} numFrames - Number of frames (2-8, default 4)
+   * @returns {Array<Uint8Array>} Array of binary frame data
+   */
+  temporalDither(grayscale, width, height, numFrames = 4) {
+    const frames = [];
+
+    // Generate brightness thresholds for each frame
+    // Frame 0: Only brightest pixels (creates ~25% duty cycle for dark pixels)
+    // Frame 1: Brighter pixels (creates ~50% duty cycle)
+    // Frame 2: Medium pixels (creates ~75% duty cycle)
+    // Frame 3: Most pixels (creates ~100% duty cycle for bright pixels)
+
+    for (let frameIndex = 0; frameIndex < numFrames; frameIndex++) {
+      const output = new Uint8Array(width * height);
+
+      // Calculate threshold for this frame
+      // Frame 0 (first): highest threshold - only brightest pixels
+      // Frame N-1 (last): lowest threshold - most pixels visible
+      const threshold = 255 - ((frameIndex + 1) * 255 / numFrames);
+
+      // For each pixel, determine if it should be ON in this frame
+      for (let i = 0; i < grayscale.length; i++) {
+        const brightness = grayscale[i];
+
+        // Pixel is ON if its brightness exceeds this frame's threshold
+        // This creates temporal PWM effect:
+        // - Bright pixels (255): ON in all frames (100% duty cycle)
+        // - Medium pixels (128): ON in half the frames (50% duty cycle)
+        // - Dark pixels (64): ON in quarter frames (25% duty cycle)
+        output[i] = brightness > threshold ? 1 : 0;
+      }
+
+      frames.push(output);
+    }
+
+    return frames;
+  }
+
+  /**
+   * Hybrid temporal + spatial dithering for best quality
+   * Applies error diffusion dithering to each temporal frame
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} width
+   * @param {number} height
+   * @param {number} numFrames
+   * @returns {Array<Uint8Array>} Array of binary frame data
+   */
+  temporalSpatialDither(grayscale, width, height, numFrames = 4) {
+    const frames = [];
+
+    for (let frameIndex = 0; frameIndex < numFrames; frameIndex++) {
+      // Calculate threshold for this frame
+      const baseThreshold = 255 - ((frameIndex + 1) * 255 / numFrames);
+
+      // Apply Floyd-Steinberg with this threshold
+      const frame = this.floydSteinbergDither(
+        grayscale,
+        width,
+        height,
+        baseThreshold
+      );
+
+      frames.push(frame);
+    }
+
+    return frames;
   }
 }
 
