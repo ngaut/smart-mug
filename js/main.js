@@ -38,6 +38,17 @@ document.addEventListener('DOMContentLoaded', () => {
     window.imageEditor.reset();
     updateImageStatus('Image reset');
   };
+
+  // Set up drawing functions that delegate to imageEditor
+  window.startDrawing = (row, col) => {
+    window.imageEditor.startDrawing(row, col);
+  };
+  window.continueDrawing = (row, col) => {
+    window.imageEditor.continueDrawing(row, col);
+  };
+  window.stopDrawing = () => {
+    window.imageEditor.stopDrawing();
+  };
 });
 
 async function connectToDevice() {
@@ -69,7 +80,12 @@ async function connectToDevice() {
     
     // Connect to device (device name verification happens inside connect method)
     await bleManager.connect();
-    
+
+    // Set up disconnection handler
+    if (bleManager.device) {
+      bleManager.device.addEventListener('gattserverdisconnected', handleDisconnection);
+    }
+
     // Update UI
     isConnected = true;
     connectButton.textContent = 'Disconnect';
@@ -77,13 +93,25 @@ async function connectToDevice() {
     updateDeviceStatus('Connected');
     hideConnectionPanel();
     showWelcomeMessage();
-    
+
   } catch (error) {
     console.error('Connection failed:', error);
     connectButton.disabled = false;
     connectButton.textContent = 'Connect to Device';
     updateDeviceStatus(error.message, true);
   }
+}
+
+function handleDisconnection() {
+  console.warn('Device disconnected unexpectedly');
+  isConnected = false;
+  const connectButton = document.getElementById('connectButton');
+  if (connectButton) {
+    connectButton.textContent = 'Connect to Device';
+    connectButton.disabled = false;
+  }
+  updateDeviceStatus('Disconnected', true);
+  showToast('Device disconnected. Please reconnect.', 'warning');
 }
 
 // Function panel handlers
@@ -109,7 +137,7 @@ function showDynamicModeFunction() {
 
 function showImageEditorFunction() {
   if (!isConnected) return;
-  showImageEditorPanel();
+  window.ui.showImageEditorPanel();
 }
 
 // UI callback functions
@@ -167,15 +195,44 @@ async function setDynamicMode(mode) {
 }
 
 async function sendImageData() {
-  if (!isConnected) return;
-  
+  if (!isConnected) {
+    updateImageStatus('Not connected to device', true);
+    showToast('Please connect to device first', 'warning');
+    return;
+  }
+
+  // Check actual connection status
+  if (!bleManager.isConnected()) {
+    updateImageStatus('Device disconnected. Please reconnect.', true);
+    showToast('Device disconnected. Please reconnect.', 'error');
+    isConnected = false;
+    handleDisconnection();
+    return;
+  }
+
   try {
+    showToast('Sending image to device... This may take up to 30 seconds.', 'info');
     const imageData = window.imageEditor.getGridData();
     await bleManager.setImageData(imageData);
     updateImageStatus('Image sent successfully');
+    showToast('Image sent successfully!', 'success');
   } catch (error) {
     console.error('Failed to send image data:', error);
-    updateImageStatus('Error sending image', true);
+
+    // Check if it's a timeout error but device might still have received it
+    if (error.message.includes('timeout')) {
+      updateImageStatus('Image sent (response timeout, but likely displayed on device)');
+      showToast('Image sent to device (no confirmation received)', 'warning');
+    } else {
+      updateImageStatus(`Error: ${error.message}`, true);
+      showToast(`Failed to send image: ${error.message}`, 'error');
+    }
+
+    // If disconnected, update UI
+    if (!bleManager.isConnected()) {
+      isConnected = false;
+      handleDisconnection();
+    }
   }
 }
 
@@ -343,78 +400,6 @@ function showDynamicModePanel() {
   }
 }
 
-function showImageEditorPanel() {
-  hideAllFunctionPanels();
-  const panel = document.getElementById('imageEditorPanel');
-  if (panel) {
-    panel.innerHTML = `
-      <h2 class="text-xl font-semibold mb-4">Monochrome Image Editor</h2>
-      <div class="tool-buttons">
-        <button id="drawTool" class="tool-button active" data-tool="draw">Draw</button>
-        <button id="eraseTool" class="tool-button" data-tool="erase">Erase</button>
-        <button id="clearTool" class="tool-button" data-tool="clear">Clear</button>
-        <button id="fillTool" class="tool-button" data-tool="fill">Fill</button>
-      </div>
-      <div class="pixel-grid-container" style="width: 100%; height: 400px; max-height: 60vh; border: 1px solid #ccc; margin: 15px 0;">
-        <div id="pixelGrid" class="pixel-grid"></div>
-      </div>
-      <div class="mt-4">
-        <button id="sendImageBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-          Send to Cup
-        </button>
-      </div>
-      <div id="imageStatus" class="mt-2 text-green-500 hidden"></div>
-    `;
-    panel.classList.remove('hidden');
-    
-    // Initialize the pixel grid
-    initializePixelGrid();
-    
-    // Add event listeners for tools
-    document.querySelectorAll('.tool-button').forEach(button => {
-      button.addEventListener('click', () => {
-        // Remove active class from all buttons
-        document.querySelectorAll('.tool-button').forEach(btn => {
-          btn.classList.remove('active');
-        });
-        // Add active class to clicked button
-        button.classList.add('active');
-        const selectedTool = button.dataset.tool;
-        window.currentTool = selectedTool;
-        
-        // Handle immediate action tools
-        if (selectedTool === 'clear') {
-          window.imageEditor.initializeGrid();
-          // Set back to draw tool after clearing
-          button.classList.remove('active'); // Remove from clear button
-          document.querySelector('[data-tool="draw"]').classList.add('active');
-          window.currentTool = 'draw';
-          window.imageEditor.setTool('draw');
-        } else if (selectedTool === 'fill') {
-          // Store current tool, perform fill, then switch to erase
-          console.log('Fill button clicked - calling fillGrid');
-          const previousTool = window.imageEditor.currentTool;
-          window.imageEditor.fillGrid();
-          // Set to erase tool after filling
-          button.classList.remove('active'); // Remove from fill button
-          document.querySelector('[data-tool="erase"]').classList.add('active');
-          window.currentTool = 'erase';
-          window.imageEditor.setTool('erase');
-          console.log('Fill action completed, switched to erase tool');
-        } else {
-          // For draw and erase tools, update the imageEditor's tool
-          window.imageEditor.setTool(selectedTool);
-        }
-      });
-    });
-    
-    // Add event listeners for actions
-    document.getElementById('sendImageBtn').addEventListener('click', () => {
-      window.sendImageData();
-    });
-  }
-}
-
 function hideAllFunctionPanels() {
   document.getElementById('welcomeMessage').classList.add('hidden');
   const panels = ['versionPanel', 'temperaturePanel', 'greetingPanel', 'dynamicModePanel', 'imageEditorPanel'];
@@ -514,3 +499,84 @@ function initializeFunctionPanels() {
 
 // Initialize panels when DOM is loaded
 document.addEventListener('DOMContentLoaded', initializeFunctionPanels);
+
+// Image upload and processing functions
+let processedImageData = null; // Store processed image data for preview
+
+async function processUploadedImage() {
+  const fileInput = document.getElementById('imageFileInput');
+  const file = fileInput.files[0];
+
+  if (!file) {
+    showToast('Please select an image file', 'warning');
+    return;
+  }
+
+  try {
+    showToast('Processing image...', 'info');
+
+    // Get processing options
+    const algorithm = document.getElementById('algorithmSelect').value;
+    const threshold = parseInt(document.getElementById('thresholdSlider').value);
+    const maintainAspect = document.getElementById('maintainAspectCheckbox').checked;
+
+    // Process image
+    const result = await window.imageProcessor.processImage(file, {
+      threshold: threshold,
+      useDithering: algorithm === 'dither',
+      maintainAspect: maintainAspect
+    });
+
+    // Store processed data
+    processedImageData = result;
+
+    // Show preview section
+    const previewSection = document.getElementById('previewSection');
+    previewSection.classList.remove('hidden');
+
+    // Draw original (resized) preview
+    const originalCanvas = document.getElementById('originalPreview');
+    const originalCtx = originalCanvas.getContext('2d');
+    originalCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+    originalCtx.drawImage(result.originalImage, 0, 0, 192, 48);
+
+    // Draw processed preview
+    const processedCanvas = document.getElementById('processedPreview');
+    const processedCtx = processedCanvas.getContext('2d');
+    processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
+    processedCtx.drawImage(result.preview, 0, 0, 384, 96);
+
+    showToast('Image processed successfully!', 'success');
+  } catch (error) {
+    console.error('Image processing error:', error);
+    showToast(`Failed to process image: ${error.message}`, 'error');
+  }
+}
+
+function applyProcessedImageToEditor() {
+  if (!processedImageData) {
+    showToast('No processed image available', 'warning');
+    return;
+  }
+
+  try {
+    // Apply grid data to imageEditor
+    window.imageEditor.grid = processedImageData.grid;
+    window.imageEditor.updateDisplay();
+
+    showToast('Image applied to editor!', 'success');
+
+    // Scroll to pixel grid
+    const pixelGrid = document.getElementById('pixelGrid');
+    if (pixelGrid) {
+      pixelGrid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  } catch (error) {
+    console.error('Failed to apply image:', error);
+    showToast(`Failed to apply image: ${error.message}`, 'error');
+  }
+}
+
+// Make functions globally accessible
+window.processUploadedImage = processUploadedImage;
+window.applyProcessedImageToEditor = applyProcessedImageToEditor;

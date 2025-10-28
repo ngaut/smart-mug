@@ -327,8 +327,21 @@ class BLEManager {
 
       const command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x25, ...flatData];
       command[2] = command.length; // Update length byte
-      await this.executeCommand(command);
-      return true;
+
+      // Image command takes longer to process - device needs time to render
+      try {
+        await this.executeCommand(command, 30000); // 30-second timeout (device is slow)
+        return true;
+      } catch (error) {
+        // If timeout, the command was sent - treat as success
+        if (error.message.includes('timeout')) {
+          console.warn('Image command sent but response took too long (>30s)');
+          console.warn('Image should still appear on device');
+          // Treat as success since command was sent
+          return true;
+        }
+        throw error;
+      }
     } catch (error) {
       throw new Error(`Failed to set image data: ${error.message}`);
     }

@@ -160,20 +160,84 @@ function showImageEditorPanel() {
   if (panel) {
     panel.innerHTML = `
       <h2 class="text-xl font-semibold mb-4">Monochrome Image Editor</h2>
-      <div class="tool-buttons">
-        <button id="drawTool" class="tool-button active" data-tool="draw">Draw</button>
-        <button id="eraseTool" class="tool-button" data-tool="erase">Erase</button>
-        <button id="clearTool" class="tool-button" data-tool="clear">Clear</button>
-        <button id="fillTool" class="tool-button" data-tool="fill">Fill</button>
+
+      <!-- Image Upload Section -->
+      <div class="bg-gray-50 p-4 rounded-lg mb-4 border-2 border-dashed border-gray-300">
+        <h3 class="text-lg font-medium mb-3">Upload Image</h3>
+        <div class="mb-3">
+          <input type="file" id="imageFileInput" accept="image/*" class="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-500 file:text-white
+            hover:file:bg-blue-600
+            file:cursor-pointer cursor-pointer">
+        </div>
+
+        <!-- Processing Options -->
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Algorithm</label>
+            <select id="algorithmSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+              <option value="dither" selected>Floyd-Steinberg Dithering</option>
+              <option value="threshold">Simple Threshold</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Threshold</label>
+            <input type="range" id="thresholdSlider" min="0" max="255" value="128" class="w-full">
+            <div class="text-xs text-gray-600 text-center"><span id="thresholdValue">128</span></div>
+          </div>
+        </div>
+
+        <div class="flex items-center mb-3">
+          <input type="checkbox" id="maintainAspectCheckbox" checked class="mr-2">
+          <label for="maintainAspectCheckbox" class="text-sm text-gray-700">Maintain aspect ratio</label>
+        </div>
+
+        <button id="processImageBtn" disabled class="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded">
+          Process & Preview
+        </button>
       </div>
-      <div class="pixel-grid-container">
-        <div id="pixelGrid" class="pixel-grid"></div>
+
+      <!-- Preview Section -->
+      <div id="previewSection" class="bg-white p-4 rounded-lg mb-4 border border-gray-200 hidden">
+        <h3 class="text-lg font-medium mb-3">Preview</h3>
+        <div class="flex justify-center gap-4">
+          <div>
+            <p class="text-sm text-gray-600 mb-2 text-center">Original (resized)</p>
+            <canvas id="originalPreview" class="border border-gray-300" width="192" height="48"></canvas>
+          </div>
+          <div>
+            <p class="text-sm text-gray-600 mb-2 text-center">Processed (48×12)</p>
+            <canvas id="processedPreview" class="border border-gray-300" width="384" height="96"></canvas>
+          </div>
+        </div>
+        <button id="applyToEditorBtn" class="w-full mt-3 bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded">
+          Apply to Editor
+        </button>
       </div>
-      <div class="mt-4">
-        <button id="sendImageBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+
+      <!-- Manual Editor Section -->
+      <div class="bg-white p-4 rounded-lg mb-4 border border-gray-200">
+        <h3 class="text-lg font-medium mb-3">Manual Drawing Tools</h3>
+        <div class="tool-buttons">
+          <button id="drawTool" class="tool-button active" data-tool="draw">Draw</button>
+          <button id="eraseTool" class="tool-button" data-tool="erase">Erase</button>
+          <button id="clearTool" class="tool-button" data-tool="clear">Clear</button>
+          <button id="fillTool" class="tool-button" data-tool="fill">Fill</button>
+        </div>
+        <div class="pixel-grid-container">
+          <div id="pixelGrid" class="pixel-grid"></div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex gap-2">
+        <button id="sendImageBtn" class="flex-1 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
           Send to Cup
         </button>
-        <button id="resetImageBtn" class="ml-2 bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+        <button id="resetImageBtn" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
           Reset
         </button>
       </div>
@@ -193,8 +257,35 @@ function showImageEditorPanel() {
         });
         // Add active class to clicked button
         button.classList.add("active");
-        window.currentTool = button.dataset.tool;
+        const tool = button.dataset.tool;
+        window.currentTool = tool;
+        // Sync with imageEditor
+        if (window.imageEditor) {
+          window.imageEditor.setTool(tool);
+        }
       });
+    });
+
+    // Add event listeners for image upload
+    const fileInput = document.getElementById("imageFileInput");
+    const processBtn = document.getElementById("processImageBtn");
+    const thresholdSlider = document.getElementById("thresholdSlider");
+    const thresholdValue = document.getElementById("thresholdValue");
+
+    fileInput.addEventListener("change", (e) => {
+      processBtn.disabled = !e.target.files.length;
+    });
+
+    thresholdSlider.addEventListener("input", (e) => {
+      thresholdValue.textContent = e.target.value;
+    });
+
+    processBtn.addEventListener("click", () => {
+      window.processUploadedImage();
+    });
+
+    document.getElementById("applyToEditorBtn")?.addEventListener("click", () => {
+      window.applyProcessedImageToEditor();
     });
 
     // Add event listeners for actions
