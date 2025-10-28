@@ -213,13 +213,17 @@ class ImageProcessor {
    * Process image file and return grid data ready for display
    * @param {File} file - Image file
    * @param {Object} options - Processing options
-   * @returns {Promise<Object>} - {grid, preview, originalImage}
+   * @returns {Promise<Object>} - {grid, preview, originalImage, analysis}
    */
   async processImage(file, options = {}) {
     const {
       threshold = 128,
-      useDithering = true,
-      maintainAspect = true
+      algorithm = 'floyd-steinberg', // 'floyd-steinberg', 'atkinson', 'ordered', 'threshold'
+      maintainAspect = true,
+      brightness = 0,      // -100 to 100
+      contrast = 0,        // -100 to 100
+      sharpen = 0,         // 0 to 2
+      autoContrast = false // Histogram equalization
     } = options;
 
     try {
@@ -235,12 +239,50 @@ class ImageProcessor {
       );
 
       // Convert to grayscale
-      const grayscale = this.toGrayscale(imageData);
+      let grayscale = this.toGrayscale(imageData);
 
-      // Apply dithering or threshold
-      const binaryData = useDithering
-        ? this.floydSteinbergDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, threshold)
-        : this.simpleThreshold(grayscale, threshold);
+      // Analyze original grayscale
+      const analysis = this.analyzeImage(grayscale);
+
+      // Apply preprocessing in order
+
+      // 1. Auto contrast (histogram equalization)
+      if (autoContrast) {
+        grayscale = this.histogramEqualize(grayscale);
+      }
+
+      // 2. Brightness adjustment
+      if (brightness !== 0) {
+        grayscale = this.adjustBrightness(grayscale, brightness);
+      }
+
+      // 3. Contrast adjustment
+      if (contrast !== 0) {
+        grayscale = this.adjustContrast(grayscale, contrast);
+      }
+
+      // 4. Sharpening
+      if (sharpen > 0) {
+        grayscale = this.sharpen(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, sharpen);
+      }
+
+      // Apply dithering algorithm
+      let binaryData;
+      switch (algorithm) {
+        case 'atkinson':
+          binaryData = this.atkinsonDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, threshold);
+          break;
+        case 'ordered':
+          binaryData = this.orderedDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
+          break;
+        case 'threshold':
+          binaryData = this.simpleThreshold(grayscale, threshold);
+          break;
+        case 'floyd-steinberg':
+        default:
+          binaryData = this.floydSteinbergDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, threshold);
+          break;
+      }
 
       // Convert to grid format
       const grid = this.toGridArray(binaryData, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
@@ -252,7 +294,8 @@ class ImageProcessor {
         grid,
         preview,
         originalImage: img,
-        binaryData
+        binaryData,
+        analysis // Include analysis for UI feedback
       };
     } catch (error) {
       throw new Error(`Image processing failed: ${error.message}`);
@@ -278,18 +321,242 @@ class ImageProcessor {
   /**
    * Adjust contrast of grayscale data
    * @param {Uint8ClampedArray} grayscale
-   * @param {number} contrast - Contrast factor (0.5 to 2.0, 1.0 = no change)
+   * @param {number} contrast - Contrast factor (-100 to 100, 0 = no change)
    * @returns {Uint8ClampedArray}
    */
   adjustContrast(grayscale, contrast) {
     const adjusted = new Uint8ClampedArray(grayscale.length);
-    const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+    const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
 
     for (let i = 0; i < grayscale.length; i++) {
       adjusted[i] = Math.max(0, Math.min(255, factor * (grayscale[i] - 128) + 128));
     }
 
     return adjusted;
+  }
+
+  /**
+   * Sharpen image using unsharp mask
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} width
+   * @param {number} height
+   * @param {number} amount - Sharpening amount (0-2, default 1)
+   * @returns {Uint8ClampedArray}
+   */
+  sharpen(grayscale, width, height, amount = 1) {
+    const sharpened = new Uint8ClampedArray(grayscale.length);
+
+    // Simple 3x3 sharpening kernel
+    const kernel = [
+      0, -1, 0,
+      -1, 5, -1,
+      0, -1, 0
+    ];
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let sum = 0;
+
+        // Apply kernel
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const idx = (y + ky) * width + (x + kx);
+            const kidx = (ky + 1) * 3 + (kx + 1);
+            sum += grayscale[idx] * kernel[kidx];
+          }
+        }
+
+        const idx = y * width + x;
+        const original = grayscale[idx];
+        const sharp = original + (sum - original) * amount;
+        sharpened[idx] = Math.max(0, Math.min(255, sharp));
+      }
+    }
+
+    // Copy edges
+    for (let x = 0; x < width; x++) {
+      sharpened[x] = grayscale[x]; // Top
+      sharpened[(height - 1) * width + x] = grayscale[(height - 1) * width + x]; // Bottom
+    }
+    for (let y = 0; y < height; y++) {
+      sharpened[y * width] = grayscale[y * width]; // Left
+      sharpened[y * width + width - 1] = grayscale[y * width + width - 1]; // Right
+    }
+
+    return sharpened;
+  }
+
+  /**
+   * Histogram equalization for automatic contrast enhancement
+   * @param {Uint8ClampedArray} grayscale
+   * @returns {Uint8ClampedArray}
+   */
+  histogramEqualize(grayscale) {
+    const histogram = new Array(256).fill(0);
+    const cdf = new Array(256).fill(0);
+
+    // Build histogram
+    for (let i = 0; i < grayscale.length; i++) {
+      histogram[grayscale[i]]++;
+    }
+
+    // Build cumulative distribution function
+    cdf[0] = histogram[0];
+    for (let i = 1; i < 256; i++) {
+      cdf[i] = cdf[i - 1] + histogram[i];
+    }
+
+    // Normalize CDF
+    const cdfMin = cdf.find(v => v > 0);
+    const totalPixels = grayscale.length;
+    const equalized = new Uint8ClampedArray(grayscale.length);
+
+    for (let i = 0; i < grayscale.length; i++) {
+      const value = grayscale[i];
+      equalized[i] = Math.round(((cdf[value] - cdfMin) / (totalPixels - cdfMin)) * 255);
+    }
+
+    return equalized;
+  }
+
+  /**
+   * Atkinson dithering algorithm (cleaner, less noise than Floyd-Steinberg)
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} width
+   * @param {number} height
+   * @param {number} threshold
+   * @returns {Uint8Array}
+   */
+  atkinsonDither(grayscale, width, height, threshold = 128) {
+    const pixels = new Float32Array(grayscale);
+    const output = new Uint8Array(width * height);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        const oldPixel = pixels[idx];
+        const newPixel = oldPixel > threshold ? 255 : 0;
+        output[idx] = newPixel === 0 ? 1 : 0; // Invert: 0 = white, 1 = black
+
+        const error = (oldPixel - newPixel) / 8; // Atkinson divides by 8, not 16
+
+        // Distribute error (Atkinson pattern)
+        if (x + 1 < width) pixels[idx + 1] += error;
+        if (x + 2 < width) pixels[idx + 2] += error;
+        if (y + 1 < height) {
+          if (x - 1 >= 0) pixels[idx + width - 1] += error;
+          pixels[idx + width] += error;
+          if (x + 1 < width) pixels[idx + width + 1] += error;
+        }
+        if (y + 2 < height) {
+          pixels[idx + width * 2] += error;
+        }
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Ordered (Bayer) dithering - creates regular pattern
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} width
+   * @param {number} height
+   * @returns {Uint8Array}
+   */
+  orderedDither(grayscale, width, height) {
+    const output = new Uint8Array(width * height);
+
+    // 4x4 Bayer matrix
+    const bayerMatrix = [
+      [ 0, 8, 2, 10],
+      [12, 4, 14, 6],
+      [ 3, 11, 1, 9],
+      [15, 7, 13, 5]
+    ];
+
+    const matrixSize = 4;
+    const scale = 255 / 16; // Bayer matrix values are 0-15
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        const bayerValue = bayerMatrix[y % matrixSize][x % matrixSize];
+        const threshold = bayerValue * scale;
+        output[idx] = grayscale[idx] > threshold ? 0 : 1; // 0 = white, 1 = black
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Analyze image histogram and suggest improvements
+   * @param {Uint8ClampedArray} grayscale
+   * @returns {Object} Analysis results with suggestions
+   */
+  analyzeImage(grayscale) {
+    const histogram = new Array(256).fill(0);
+    let min = 255, max = 0, sum = 0;
+
+    // Build histogram and calculate stats
+    for (let i = 0; i < grayscale.length; i++) {
+      const value = grayscale[i];
+      histogram[value]++;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      sum += value;
+    }
+
+    const mean = sum / grayscale.length;
+    const range = max - min;
+    const contrast = range / 255;
+
+    // Calculate standard deviation
+    let variance = 0;
+    for (let i = 0; i < grayscale.length; i++) {
+      variance += Math.pow(grayscale[i] - mean, 2);
+    }
+    const stdDev = Math.sqrt(variance / grayscale.length);
+
+    // Determine image characteristics
+    const isLowContrast = contrast < 0.4;
+    const isDark = mean < 85;
+    const isBright = mean > 170;
+    const hasGoodDistribution = stdDev > 50;
+
+    // Generate suggestions
+    const suggestions = [];
+    if (isLowContrast) {
+      suggestions.push('⚠️ Low contrast - increase contrast slider');
+    }
+    if (isDark) {
+      suggestions.push('🔆 Image is dark - increase brightness');
+    }
+    if (isBright) {
+      suggestions.push('🔅 Image is bright - decrease brightness');
+    }
+    if (!hasGoodDistribution) {
+      suggestions.push('📊 Limited tonal range - try histogram equalization');
+    }
+    if (range < 100) {
+      suggestions.push('💡 Try sharpening to enhance details');
+    }
+
+    return {
+      min,
+      max,
+      mean: Math.round(mean),
+      stdDev: Math.round(stdDev),
+      contrast: Math.round(contrast * 100),
+      histogram,
+      isLowContrast,
+      isDark,
+      isBright,
+      hasGoodDistribution,
+      suggestions,
+      quality: hasGoodDistribution && !isLowContrast ? 'good' : 'poor'
+    };
   }
 }
 

@@ -175,24 +175,55 @@ function showImageEditorPanel() {
         </div>
 
         <!-- Processing Options -->
-        <div class="grid grid-cols-2 gap-3 mb-3">
+        <div class="space-y-3 mb-3">
+          <!-- Algorithm Selection -->
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Algorithm</label>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Dithering Algorithm</label>
             <select id="algorithmSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
-              <option value="dither" selected>Floyd-Steinberg Dithering</option>
-              <option value="threshold">Simple Threshold</option>
+              <option value="floyd-steinberg" selected>Floyd-Steinberg (Best for photos)</option>
+              <option value="atkinson">Atkinson (Cleaner, less noise)</option>
+              <option value="ordered">Ordered/Bayer (Pattern-based)</option>
+              <option value="threshold">Simple Threshold (Fast)</option>
             </select>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Threshold</label>
-            <input type="range" id="thresholdSlider" min="0" max="255" value="128" class="w-full">
-            <div class="text-xs text-gray-600 text-center"><span id="thresholdValue">128</span></div>
-          </div>
-        </div>
 
-        <div class="flex items-center mb-3">
-          <input type="checkbox" id="maintainAspectCheckbox" checked class="mr-2">
-          <label for="maintainAspectCheckbox" class="text-sm text-gray-700">Maintain aspect ratio</label>
+          <!-- Preprocessing Options -->
+          <div class="border-t pt-3">
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-sm font-medium text-gray-700">Enhancement</label>
+              <input type="checkbox" id="autoContrastCheckbox" class="mr-1">
+              <label for="autoContrastCheckbox" class="text-xs text-gray-600">Auto-Contrast</label>
+            </div>
+
+            <!-- Brightness -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-600 mb-1">Brightness: <span id="brightnessValue">0</span></label>
+              <input type="range" id="brightnessSlider" min="-100" max="100" value="0" class="w-full h-2">
+            </div>
+
+            <!-- Contrast -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-600 mb-1">Contrast: <span id="contrastValue">0</span></label>
+              <input type="range" id="contrastSlider" min="-100" max="100" value="0" class="w-full h-2">
+            </div>
+
+            <!-- Sharpening -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-600 mb-1">Sharpening: <span id="sharpenValue">0</span></label>
+              <input type="range" id="sharpenSlider" min="0" max="2" step="0.1" value="0" class="w-full h-2">
+            </div>
+
+            <!-- Threshold -->
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">Threshold: <span id="thresholdValue">128</span></label>
+              <input type="range" id="thresholdSlider" min="0" max="255" value="128" class="w-full h-2">
+            </div>
+          </div>
+
+          <div class="flex items-center">
+            <input type="checkbox" id="maintainAspectCheckbox" checked class="mr-2">
+            <label for="maintainAspectCheckbox" class="text-sm text-gray-700">Maintain aspect ratio</label>
+          </div>
         </div>
 
         <button id="processImageBtn" disabled class="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded">
@@ -203,6 +234,14 @@ function showImageEditorPanel() {
       <!-- Preview Section -->
       <div id="previewSection" class="bg-white p-4 rounded-lg mb-4 border border-gray-200 hidden">
         <h3 class="text-lg font-medium mb-3">Preview</h3>
+
+        <!-- Image Analysis -->
+        <div id="imageAnalysis" class="mb-3 p-3 bg-gray-50 rounded text-sm">
+          <div class="font-medium mb-1">Image Quality</div>
+          <div id="analysisStats" class="text-xs text-gray-600 mb-2"></div>
+          <div id="analysisSuggestions" class="space-y-1"></div>
+        </div>
+
         <div class="flex justify-center gap-4">
           <div>
             <p class="text-sm text-gray-600 mb-2 text-center">Original (resized)</p>
@@ -269,15 +308,36 @@ function showImageEditorPanel() {
     // Add event listeners for image upload
     const fileInput = document.getElementById("imageFileInput");
     const processBtn = document.getElementById("processImageBtn");
+
+    // Slider elements
     const thresholdSlider = document.getElementById("thresholdSlider");
     const thresholdValue = document.getElementById("thresholdValue");
+    const brightnessSlider = document.getElementById("brightnessSlider");
+    const brightnessValue = document.getElementById("brightnessValue");
+    const contrastSlider = document.getElementById("contrastSlider");
+    const contrastValue = document.getElementById("contrastValue");
+    const sharpenSlider = document.getElementById("sharpenSlider");
+    const sharpenValue = document.getElementById("sharpenValue");
 
     fileInput.addEventListener("change", (e) => {
       processBtn.disabled = !e.target.files.length;
     });
 
+    // Update slider value displays
     thresholdSlider.addEventListener("input", (e) => {
       thresholdValue.textContent = e.target.value;
+    });
+
+    brightnessSlider.addEventListener("input", (e) => {
+      brightnessValue.textContent = e.target.value;
+    });
+
+    contrastSlider.addEventListener("input", (e) => {
+      contrastValue.textContent = e.target.value;
+    });
+
+    sharpenSlider.addEventListener("input", (e) => {
+      sharpenValue.textContent = parseFloat(e.target.value).toFixed(1);
     });
 
     processBtn.addEventListener("click", () => {

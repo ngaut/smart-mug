@@ -518,12 +518,20 @@ async function processUploadedImage() {
     // Get processing options
     const algorithm = document.getElementById('algorithmSelect').value;
     const threshold = parseInt(document.getElementById('thresholdSlider').value);
+    const brightness = parseInt(document.getElementById('brightnessSlider').value);
+    const contrast = parseInt(document.getElementById('contrastSlider').value);
+    const sharpen = parseFloat(document.getElementById('sharpenSlider').value);
+    const autoContrast = document.getElementById('autoContrastCheckbox').checked;
     const maintainAspect = document.getElementById('maintainAspectCheckbox').checked;
 
     // Process image
     const result = await window.imageProcessor.processImage(file, {
+      algorithm: algorithm,
       threshold: threshold,
-      useDithering: algorithm === 'dither',
+      brightness: brightness,
+      contrast: contrast,
+      sharpen: sharpen,
+      autoContrast: autoContrast,
       maintainAspect: maintainAspect
     });
 
@@ -545,6 +553,34 @@ async function processUploadedImage() {
     const processedCtx = processedCanvas.getContext('2d');
     processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
     processedCtx.drawImage(result.preview, 0, 0, 384, 96);
+
+    // Display image analysis results
+    if (result.analysis) {
+      const analysisStats = document.getElementById('analysisStats');
+      const analysisSuggestions = document.getElementById('analysisSuggestions');
+
+      const contrastPercent = (result.analysis.contrast * 100).toFixed(0);
+      const meanRounded = Math.round(result.analysis.mean);
+
+      analysisStats.innerHTML = `
+        <div class="text-xs space-y-1">
+          <div>Range: ${result.analysis.min}-${result.analysis.max}</div>
+          <div>Contrast: ${contrastPercent}%</div>
+          <div>Brightness: ${meanRounded}/255</div>
+          <div>Quality: <span class="${result.analysis.quality === 'poor' ? 'text-red-600' : 'text-green-600'}">${result.analysis.quality}</span></div>
+        </div>
+      `;
+
+      if (result.analysis.suggestions.length > 0) {
+        analysisSuggestions.innerHTML = result.analysis.suggestions
+          .map(s => `<div class="text-xs mt-1">${s}</div>`)
+          .join('');
+      } else {
+        analysisSuggestions.innerHTML = '<div class="text-xs mt-1 text-green-600">✓ Image looks good!</div>';
+      }
+
+      document.getElementById('imageAnalysis').classList.remove('hidden');
+    }
 
     showToast('Image processed successfully!', 'success');
   } catch (error) {
