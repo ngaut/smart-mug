@@ -18,6 +18,8 @@ class BLEManager {
     this.responseCharacteristic = null;
     this.pendingResponse = null;
     this.responseTimeout = null;
+    this.isSending = false; // Mutex lock to prevent concurrent sends
+    this.sendQueue = []; // Queue for pending sends
   }
 
   async requestDevice() {
@@ -191,7 +193,7 @@ class BLEManager {
   }
 
   // Internal method to send command to the device
-  async sendCommandInternal(commandData, fastMode = false) {
+  async sendCommandInternal(commandData) {
     if (!this.server) {
       throw new Error("Not connected to device");
     }
@@ -201,16 +203,8 @@ class BLEManager {
     }
 
     try {
-      console.log("Sending command:", commandData, fastMode ? "(FAST MODE)" : "");
-
-      if (fastMode) {
-        // Use writeValueWithoutResponse for faster transmission
-        // No wait for device acknowledgment - fire and forget!
-        await this.commandCharacteristic.writeValueWithoutResponse(commandData);
-      } else {
-        // Standard write with response
-        await this.commandCharacteristic.writeValue(commandData);
-      }
+      console.log("Sending command:", commandData);
+      await this.commandCharacteristic.writeValue(commandData);
       return true;
     } catch (error) {
       throw new Error(`Failed to send command: ${error.message}`);
@@ -309,6 +303,22 @@ class BLEManager {
       throw new Error("Not connected to device");
     }
 
+    // CRITICAL: Wait if another send is in progress
+    if (this.isSending) {
+      console.warn('BLE busy - waiting for previous send to complete...');
+      // Wait up to 35 seconds for current send to finish
+      for (let i = 0; i < 70; i++) {
+        if (!this.isSending) break;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (this.isSending) {
+        throw new Error('BLE busy timeout - previous send did not complete');
+      }
+    }
+
+    // Acquire lock
+    this.isSending = true;
+
     try {
       // Convert 2D array to bit-packed Uint8Array
       // imageData is a 12x48 array where 0 = white, 1 = black
@@ -352,53 +362,9 @@ class BLEManager {
       }
     } catch (error) {
       throw new Error(`Failed to set image data: ${error.message}`);
-    }
-  }
-
-  // Fast image sending without waiting for response (for animations)
-  async setImageDataFast(imageData) {
-    if (!this.server) {
-      throw new Error("Not connected to device");
-    }
-
-    try {
-      // Convert 2D array to bit-packed Uint8Array (same as setImageData)
-      const totalPixels = IMAGE_HEIGHT * IMAGE_WIDTH;
-      const totalBytes = Math.ceil(totalPixels / 8);
-      const flatData = new Uint8Array(120);
-
-      let bitIndex = 0;
-      for (let row = 0; row < IMAGE_HEIGHT; row++) {
-        for (let col = 0; col < IMAGE_WIDTH; col++) {
-          const byteIndex = Math.floor(bitIndex / 8);
-          const bitPosition = 7 - (bitIndex % 8);
-
-          if (imageData[row][col] === 1) {
-            flatData[byteIndex] |= (1 << bitPosition);
-          }
-
-          bitIndex++;
-        }
-      }
-
-      const command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x25, ...flatData];
-      command[2] = command.length;
-
-      // FAST MODE: Fire and forget - don't wait for response
-      // This should be MUCH faster for rapid frame updates
-      if (!this.commandCharacteristic) {
-        throw new Error("Command characteristic not available");
-      }
-
-      const commandData = new Uint8Array(command);
-      console.log('Fast image send:', commandData.length, 'bytes');
-
-      // Use writeValueWithoutResponse for speed
-      await this.commandCharacteristic.writeValueWithoutResponse(commandData);
-
-      return true;
-    } catch (error) {
-      throw new Error(`Failed to set image data (fast mode): ${error.message}`);
+    } finally {
+      // CRITICAL: Always release lock
+      this.isSending = false;
     }
   }
 
