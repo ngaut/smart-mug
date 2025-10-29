@@ -822,6 +822,12 @@ async function sendAnimationToDevice() {
     return;
   }
 
+  // CRITICAL: Clear any existing timeout/interval to prevent duplicates
+  if (deviceAnimationState.intervalId) {
+    clearTimeout(deviceAnimationState.intervalId);
+    deviceAnimationState.intervalId = null;
+  }
+
   // Show stop button, hide send button
   document.getElementById('sendAnimationBtn').classList.add('hidden');
   document.getElementById('stopAnimationBtn').classList.remove('hidden');
