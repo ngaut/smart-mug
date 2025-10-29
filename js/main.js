@@ -839,8 +839,8 @@ async function sendAnimationToDevice() {
       document.getElementById('deviceAnimationStatus').textContent =
         `Sending Frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} (Total elapsed: ${totalElapsed}s)`;
 
-      // Send frame to device
-      const success = await window.bleManager.setImageData(frame.grid);
+      // Send frame to device using FAST MODE (no wait for response)
+      const success = await window.bleManager.setImageDataFast(frame.grid);
 
       if (!success) {
         throw new Error('Failed to send frame');
@@ -848,7 +848,7 @@ async function sendAnimationToDevice() {
 
       // Show completion for this frame
       const frameElapsed = Math.floor((Date.now() - deviceAnimationState.frameStartTime) / 1000);
-      console.log(`Frame ${deviceAnimationState.currentFrame + 1} sent successfully in ${frameElapsed}s`);
+      console.log(`Frame ${deviceAnimationState.currentFrame + 1} sent in ${frameElapsed}s (FAST MODE)`);
 
       // Move to next frame
       deviceAnimationState.currentFrame =
@@ -856,13 +856,12 @@ async function sendAnimationToDevice() {
 
       // Schedule next frame
       if (deviceAnimationState.isRunning) {
-        // Add delay to let device actually display the frame
-        // Device needs time to process and show the image before receiving next frame
-        // Using 2-3 second delay to ensure visible frame changes
-        const displayDelay = 2000; // 2 seconds display time per frame
-        console.log(`Waiting ${displayDelay}ms before sending next frame...`);
+        // With fast mode, we can send frames much more rapidly!
+        // Try shorter delay - device should handle faster now
+        const displayDelay = 100; // 100ms = 10 FPS target
+        console.log(`Fast mode: sending next frame in ${displayDelay}ms...`);
         document.getElementById('deviceAnimationStatus').textContent =
-          `Frame ${deviceAnimationState.currentFrame}/${temporalAnimationState.frameData.length} displayed (waiting ${displayDelay/1000}s before next)`;
+          `Frame ${deviceAnimationState.currentFrame}/${temporalAnimationState.frameData.length} sent (${Math.round(1000/displayDelay)} FPS target)`;
         deviceAnimationState.intervalId = setTimeout(sendNextFrame, displayDelay);
       }
     } catch (error) {
