@@ -682,6 +682,16 @@ function setupTemporalAnimation(result) {
   document.getElementById('sendAnimationBtn').onclick = sendAnimationToDevice;
   document.getElementById('stopAnimationBtn').onclick = stopAnimationToDevice;
 
+  // Set up device delay slider
+  const deviceDelaySlider = document.getElementById('deviceDelaySlider');
+  const deviceDelayValue = document.getElementById('deviceDelayValue');
+  if (deviceDelaySlider && deviceDelayValue) {
+    deviceDelaySlider.addEventListener('input', (e) => {
+      deviceAnimationState.frameDelay = parseInt(e.target.value);
+      deviceDelayValue.textContent = e.target.value;
+    });
+  }
+
   // Auto-start animation
   setTimeout(() => startTemporalAnimation(), 500);
 }
@@ -792,7 +802,8 @@ let deviceAnimationState = {
   currentFrame: 0,
   intervalId: null,
   startTime: null,
-  frameStartTime: null
+  frameStartTime: null,
+  frameDelay: 50 // milliseconds between frames (adjustable)
 };
 
 async function sendAnimationToDevice() {
@@ -839,8 +850,8 @@ async function sendAnimationToDevice() {
       document.getElementById('deviceAnimationStatus').textContent =
         `Sending Frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} (Total elapsed: ${totalElapsed}s)`;
 
-      // Send frame to device using FAST MODE (no wait for response)
-      const success = await window.bleManager.setImageDataFast(frame.grid);
+      // Send frame to device
+      const success = await window.bleManager.setImageData(frame.grid);
 
       if (!success) {
         throw new Error('Failed to send frame');
@@ -848,7 +859,7 @@ async function sendAnimationToDevice() {
 
       // Show completion for this frame
       const frameElapsed = Math.floor((Date.now() - deviceAnimationState.frameStartTime) / 1000);
-      console.log(`Frame ${deviceAnimationState.currentFrame + 1} sent in ${frameElapsed}s (FAST MODE)`);
+      console.log(`Frame ${deviceAnimationState.currentFrame + 1} sent successfully in ${frameElapsed}s`);
 
       // Move to next frame
       deviceAnimationState.currentFrame =
@@ -856,12 +867,11 @@ async function sendAnimationToDevice() {
 
       // Schedule next frame
       if (deviceAnimationState.isRunning) {
-        // With fast mode, we can send frames much more rapidly!
-        // Try shorter delay - device should handle faster now
-        const displayDelay = 100; // 100ms = 10 FPS target
-        console.log(`Fast mode: sending next frame in ${displayDelay}ms...`);
+        // Use user-adjustable delay
+        const displayDelay = deviceAnimationState.frameDelay;
+        console.log(`Frame ${deviceAnimationState.currentFrame} displayed, sending next frame in ${displayDelay}ms...`);
         document.getElementById('deviceAnimationStatus').textContent =
-          `Frame ${deviceAnimationState.currentFrame}/${temporalAnimationState.frameData.length} sent (${Math.round(1000/displayDelay)} FPS target)`;
+          `Frame ${deviceAnimationState.currentFrame}/${temporalAnimationState.frameData.length} displayed (${displayDelay}ms delay)`;
         deviceAnimationState.intervalId = setTimeout(sendNextFrame, displayDelay);
       }
     } catch (error) {

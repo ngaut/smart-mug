@@ -305,6 +305,13 @@ function showImageEditorPanel() {
           <div class="border-t pt-3">
             <label class="block text-xs text-gray-600 mb-2">Send to Device:</label>
 
+            <!-- Device Animation Speed Control -->
+            <div class="mb-3">
+              <label class="block text-xs text-gray-600 mb-1">Device Frame Delay: <span id="deviceDelayValue">50</span>ms</label>
+              <input type="range" id="deviceDelaySlider" min="0" max="2000" step="50" value="50" class="w-full h-2">
+              <div class="text-xs text-gray-500 mt-1">Lower = faster animation, higher = more visible frames</div>
+            </div>
+
             <!-- Send Animation Button -->
             <button id="sendAnimationBtn" class="w-full mb-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-2 px-4 rounded">
               🎬 Send Animation to Device (Loop)
