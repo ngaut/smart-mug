@@ -211,11 +211,14 @@ async function sendImageData() {
   }
 
   try {
+    const startTime = Date.now();
     showToast('Sending image to device... This may take up to 30 seconds.', 'info');
     const imageData = window.imageEditor.getGridData();
     await bleManager.setImageData(imageData);
-    updateImageStatus('Image sent successfully');
-    showToast('Image sent successfully!', 'success');
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`⚡ "Send to Cup" completed in ${elapsed}s`);
+    updateImageStatus(`Image sent successfully (${elapsed}s)`);
+    showToast(`Image sent successfully in ${elapsed}s!`, 'success');
   } catch (error) {
     console.error('Failed to send image data:', error);
 
@@ -838,7 +841,9 @@ async function sendAnimationToDevice() {
   deviceAnimationState.isRunning = true;
   deviceAnimationState.currentFrame = 0;
   deviceAnimationState.startTime = Date.now();
+  deviceAnimationState.frameTimes = []; // Track individual frame times
 
+  console.log('🎬 Starting animation - measuring frame speeds...');
   showToast('Starting animation on device... (this may take time)', 'info');
 
   // Function to send next frame in sequence
@@ -864,12 +869,29 @@ async function sendAnimationToDevice() {
       }
 
       // Show completion for this frame
-      const frameElapsed = Math.floor((Date.now() - deviceAnimationState.frameStartTime) / 1000);
-      console.log(`Frame ${deviceAnimationState.currentFrame + 1} sent successfully in ${frameElapsed}s`);
+      const frameElapsed = (Date.now() - deviceAnimationState.frameStartTime) / 1000;
+      deviceAnimationState.frameTimes.push(frameElapsed);
+      console.log(`✅ Frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} sent in ${frameElapsed.toFixed(1)}s`);
 
       // Move to next frame
       deviceAnimationState.currentFrame =
         (deviceAnimationState.currentFrame + 1) % temporalAnimationState.frameData.length;
+
+      // If completed full cycle, show statistics
+      if (deviceAnimationState.currentFrame === 0 && deviceAnimationState.frameTimes.length === temporalAnimationState.frameData.length) {
+        const totalTime = deviceAnimationState.frameTimes.reduce((a, b) => a + b, 0);
+        const avgTime = totalTime / deviceAnimationState.frameTimes.length;
+        const minTime = Math.min(...deviceAnimationState.frameTimes);
+        const maxTime = Math.max(...deviceAnimationState.frameTimes);
+        console.log(`\n📊 ANIMATION CYCLE COMPLETE:`);
+        console.log(`   Total time: ${totalTime.toFixed(1)}s`);
+        console.log(`   Average per frame: ${avgTime.toFixed(1)}s`);
+        console.log(`   Fastest frame: ${minTime.toFixed(1)}s`);
+        console.log(`   Slowest frame: ${maxTime.toFixed(1)}s`);
+        console.log(`   Frame rate: ${(temporalAnimationState.frameData.length / totalTime).toFixed(3)} FPS\n`);
+        // Reset for next cycle
+        deviceAnimationState.frameTimes = [];
+      }
 
       // Schedule next frame
       if (deviceAnimationState.isRunning) {
