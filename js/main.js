@@ -194,11 +194,11 @@ async function setDynamicMode(mode) {
   }
 }
 
-async function sendImageData() {
+async function sendImageData(imageData = null, options = {}) {
   if (!isConnected) {
     updateImageStatus('Not connected to device', true);
     showToast('Please connect to device first', 'warning');
-    return;
+    return false;
   }
 
   // Check actual connection status
@@ -207,28 +207,47 @@ async function sendImageData() {
     showToast('Device disconnected. Please reconnect.', 'error');
     isConnected = false;
     handleDisconnection();
-    return;
+    return false;
   }
 
   try {
     const startTime = Date.now();
-    showToast('Sending image to device... This may take up to 30 seconds.', 'info');
-    const imageData = window.imageEditor.getGridData();
-    await bleManager.setImageData(imageData);
+    const { silent = false, label = 'Image' } = options;
+
+    if (!silent) {
+      showToast('Sending image to device... This may take up to 30 seconds.', 'info');
+    }
+
+    // Use provided imageData or get from editor
+    const dataToSend = imageData || window.imageEditor.getGridData();
+    await bleManager.setImageData(dataToSend);
+
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`⚡ "Send to Cup" completed in ${elapsed}s`);
-    updateImageStatus(`Image sent successfully (${elapsed}s)`);
-    showToast(`Image sent successfully in ${elapsed}s!`, 'success');
+    console.log(`⚡ ${label} sent in ${elapsed}s`);
+
+    if (!silent) {
+      updateImageStatus(`Image sent successfully (${elapsed}s)`);
+      showToast(`Image sent successfully in ${elapsed}s!`, 'success');
+    }
+
+    return { success: true, elapsed: parseFloat(elapsed) };
   } catch (error) {
     console.error('Failed to send image data:', error);
 
     // Check if it's a timeout error but device might still have received it
     if (error.message.includes('timeout')) {
+      const elapsed = 30; // Timeout occurred
       updateImageStatus('Image sent (response timeout, but likely displayed on device)');
-      showToast('Image sent to device (no confirmation received)', 'warning');
+      if (!options.silent) {
+        showToast('Image sent to device (no confirmation received)', 'warning');
+      }
+      return { success: true, elapsed, timeout: true };
     } else {
       updateImageStatus(`Error: ${error.message}`, true);
-      showToast(`Failed to send image: ${error.message}`, 'error');
+      if (!options.silent) {
+        showToast(`Failed to send image: ${error.message}`, 'error');
+      }
+      return { success: false, error: error.message };
     }
 
     // If disconnected, update UI
@@ -777,25 +796,16 @@ async function sendTemporalFrame(frameIndex) {
     return;
   }
 
-  if (!isConnected) {
-    showToast('Device not connected', 'warning');
-    return;
-  }
+  const frame = temporalAnimationState.frameData[frameIndex];
+  const result = await sendImageData(frame.grid, {
+    silent: false,
+    label: `Frame ${frameIndex + 1}`
+  });
 
-  try {
-    showToast(`Sending frame ${frameIndex + 1}...`, 'info');
-
-    const frame = temporalAnimationState.frameData[frameIndex];
-    const success = await window.bleManager.setImageData(frame.grid);
-
-    if (success) {
-      showToast(`Frame ${frameIndex + 1} sent successfully!`, 'success');
-    } else {
-      throw new Error('Failed to send frame');
-    }
-  } catch (error) {
-    console.error('Frame send error:', error);
-    showToast(`Failed to send frame ${frameIndex + 1}: ${error.message}`, 'error');
+  if (result && result.success) {
+    showToast(`Frame ${frameIndex + 1} sent successfully in ${result.elapsed}s!`, 'success');
+  } else if (result && !result.success) {
+    showToast(`Failed to send frame ${frameIndex + 1}: ${result.error}`, 'error');
   }
 }
 
@@ -851,27 +861,27 @@ async function sendAnimationToDevice() {
     if (!deviceAnimationState.isRunning) return;
 
     try {
+      const frameNum = deviceAnimationState.currentFrame + 1;
       const frame = temporalAnimationState.frameData[deviceAnimationState.currentFrame];
 
-      console.log(`Sending frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} to device...`);
-
       // Update progress display
-      deviceAnimationState.frameStartTime = Date.now();
-      const totalElapsed = Math.floor((deviceAnimationState.frameStartTime - deviceAnimationState.startTime) / 1000);
+      const totalElapsed = Math.floor((Date.now() - deviceAnimationState.startTime) / 1000);
       document.getElementById('deviceAnimationStatus').textContent =
-        `Sending Frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} (Total elapsed: ${totalElapsed}s)`;
+        `Sending Frame ${frameNum}/${temporalAnimationState.frameData.length} (Total elapsed: ${totalElapsed}s)`;
 
-      // Send frame to device
-      const success = await window.bleManager.setImageData(frame.grid);
+      // Send frame using unified sendImageData function
+      const result = await sendImageData(frame.grid, {
+        silent: true,
+        label: `Frame ${frameNum}/${temporalAnimationState.frameData.length}`
+      });
 
-      if (!success) {
-        throw new Error('Failed to send frame');
+      if (!result || !result.success) {
+        throw new Error(result?.error || 'Failed to send frame');
       }
 
-      // Show completion for this frame
-      const frameElapsed = (Date.now() - deviceAnimationState.frameStartTime) / 1000;
-      deviceAnimationState.frameTimes.push(frameElapsed);
-      console.log(`✅ Frame ${deviceAnimationState.currentFrame + 1}/${temporalAnimationState.frameData.length} sent in ${frameElapsed.toFixed(1)}s`);
+      // Record timing
+      deviceAnimationState.frameTimes.push(result.elapsed);
+      console.log(`✅ Frame ${frameNum}/${temporalAnimationState.frameData.length} sent in ${result.elapsed.toFixed(1)}s`);
 
       // Move to next frame
       deviceAnimationState.currentFrame =
