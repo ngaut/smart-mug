@@ -223,18 +223,20 @@ class ImageProcessor {
       brightness = 0,      // -100 to 100
       contrast = 0,        // -100 to 100
       sharpen = 0,         // 0 to 2
-      autoContrast = false // Histogram equalization
+      autoContrast = false, // Histogram equalization
+      targetWidth = this.IMAGE_WIDTH,   // Allow custom width (default 48)
+      targetHeight = this.IMAGE_HEIGHT  // Allow custom height (default 12)
     } = options;
 
     try {
       // Load image
       const img = await this.loadImageFromFile(file);
 
-      // Resize to display dimensions
+      // Resize to display dimensions (use targetWidth/targetHeight)
       const imageData = this.resizeImage(
         img,
-        this.IMAGE_WIDTH,
-        this.IMAGE_HEIGHT,
+        targetWidth,
+        targetHeight,
         maintainAspect
       );
 
@@ -263,7 +265,7 @@ class ImageProcessor {
 
       // 4. Sharpening
       if (sharpen > 0) {
-        grayscale = this.sharpen(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, sharpen);
+        grayscale = this.sharpen(grayscale, targetWidth, targetHeight, sharpen);
       }
 
       // Apply dithering algorithm
@@ -274,26 +276,26 @@ class ImageProcessor {
       switch (algorithm) {
         case 'temporal':
           isTemporal = true;
-          frames = this.temporalDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, 4);
+          frames = this.temporalDither(grayscale, targetWidth, targetHeight, 4);
           binaryData = frames[0]; // Use first frame as default
           break;
         case 'temporal-spatial':
           isTemporal = true;
-          frames = this.temporalSpatialDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, 4);
+          frames = this.temporalSpatialDither(grayscale, targetWidth, targetHeight, 4);
           binaryData = frames[0]; // Use first frame as default
           break;
         case 'atkinson':
-          binaryData = this.atkinsonDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, threshold);
+          binaryData = this.atkinsonDither(grayscale, targetWidth, targetHeight, threshold);
           break;
         case 'ordered':
-          binaryData = this.orderedDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
+          binaryData = this.orderedDither(grayscale, targetWidth, targetHeight);
           break;
         case 'threshold':
           binaryData = this.simpleThreshold(grayscale, threshold);
           break;
         case 'floyd-steinberg':
         default:
-          binaryData = this.floydSteinbergDither(grayscale, this.IMAGE_WIDTH, this.IMAGE_HEIGHT, threshold);
+          binaryData = this.floydSteinbergDither(grayscale, targetWidth, targetHeight, threshold);
           break;
       }
 
@@ -302,8 +304,8 @@ class ImageProcessor {
         const frameData = frames.map((frameBinary, index) => ({
           index,
           binaryData: frameBinary,
-          grid: this.toGridArray(frameBinary, this.IMAGE_WIDTH, this.IMAGE_HEIGHT),
-          preview: this.createPreviewCanvas(frameBinary, this.IMAGE_WIDTH, this.IMAGE_HEIGHT)
+          grid: this.toGridArray(frameBinary, targetWidth, targetHeight),
+          preview: this.createPreviewCanvas(frameBinary, targetWidth, targetHeight)
         }));
 
         return {
@@ -320,10 +322,10 @@ class ImageProcessor {
       }
 
       // Convert to grid format (single frame)
-      const grid = this.toGridArray(binaryData, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
+      const grid = this.toGridArray(binaryData, targetWidth, targetHeight);
 
       // Create preview
-      const preview = this.createPreviewCanvas(binaryData, this.IMAGE_WIDTH, this.IMAGE_HEIGHT);
+      const preview = this.createPreviewCanvas(binaryData, targetWidth, targetHeight);
 
       return {
         isTemporal: false,

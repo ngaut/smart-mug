@@ -52,6 +52,9 @@
                             <li>
                                 <button id="imageEditorBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Static Image</button>
                             </li>
+                            <li>
+                                <button id="multiCupBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100 bg-blue-50 border-l-4 border-blue-500 font-semibold">🖼️ Multi-Cup Display</button>
+                            </li>
                         </ul>
                     </div>
                 </div>
@@ -64,6 +67,14 @@
                             <h2 class="text-2xl font-semibold mb-2">Welcome to SGUAI App</h2>
                             <p class="text-gray-600">Select a function from the sidebar to get started</p>
                         </div>
+
+                        <!-- Function panels (dynamically populated) -->
+                        <div id="versionPanel" class="hidden"></div>
+                        <div id="temperaturePanel" class="hidden"></div>
+                        <div id="greetingPanel" class="hidden"></div>
+                        <div id="dynamicModePanel" class="hidden"></div>
+                        <div id="imageEditorPanel" class="hidden"></div>
+                        <div id="multiCupPanel" class="hidden"></div>
                     </div>
                 </div>
             </div>
@@ -71,10 +82,12 @@
     </div>
 
     <!-- Load scripts in order -->
-    <script src="js/ble.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/imageProcessor.js"></script>
-    <script src="js/imageEditor.js"></script>
-    <script src="js/main.js"></script>
+    <script src="js/ble.js?v=7"></script>
+    <script src="js/multiCupBLE.js?v=7"></script>
+    <script src="js/imageSplitter.js?v=7"></script>
+    <script src="js/ui.js?v=7"></script>
+    <script src="js/imageProcessor.js?v=7"></script>
+    <script src="js/imageEditor.js?v=7"></script>
+    <script src="js/main.js?v=7"></script>
 </body>
 </html>

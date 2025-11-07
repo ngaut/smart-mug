@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('greetingBtn').addEventListener('click', showGreetingFunction);
   document.getElementById('dynamicModeBtn').addEventListener('click', showDynamicModeFunction);
   document.getElementById('imageEditorBtn').addEventListener('click', showImageEditorFunction);
+  document.getElementById('multiCupBtn').addEventListener('click', showMultiCupFunction);
   
   // Initialize image editor
   window.imageEditor.initializeGrid();
@@ -138,6 +139,11 @@ function showDynamicModeFunction() {
 function showImageEditorFunction() {
   if (!isConnected) return;
   window.ui.showImageEditorPanel();
+}
+
+function showMultiCupFunction() {
+  // Multi-cup manages its own connections, so don't check isConnected
+  window.ui.showMultiCupPanel();
 }
 
 // UI callback functions
@@ -943,6 +949,216 @@ function stopAnimationToDevice() {
   showToast('Animation stopped', 'info');
 }
 
+// ===== MULTI-CUP DISPLAY FUNCTIONS =====
+
+// Multi-cup stored image data
+let multiCupProcessedData = null;
+
+/**
+ * Connect to a specific cup at position
+ */
+async function connectMultiCup(position) {
+  const btn = document.getElementById(`connectCup${position}Btn`);
+  const cup = window.multiCupBLE.cups[position];
+
+  // If already connected, disconnect
+  if (cup.connected) {
+    try {
+      window.multiCupBLE.disconnectCup(position);
+      window.ui.updateMultiCupConnectionStatus(position, false);
+      showToast(`Cup ${position} disconnected`, 'info');
+    } catch (error) {
+      console.error(`Failed to disconnect cup ${position}:`, error);
+      showToast(`Error disconnecting cup ${position}: ${error.message}`, 'error');
+    }
+    return;
+  }
+
+  // Otherwise, connect
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Connecting...';
+    }
+
+    await window.multiCupBLE.connectCup(position);
+    window.ui.updateMultiCupConnectionStatus(position, true);
+    showToast(`Cup ${position} connected successfully!`, 'success');
+  } catch (error) {
+    console.error(`Failed to connect cup ${position}:`, error);
+    showToast(`Error connecting cup ${position}: ${error.message}`, 'error');
+    window.ui.updateMultiCupConnectionStatus(position, false);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+    }
+  }
+}
+
+/**
+ * Handle multi-cup disconnection
+ */
+function onMultiCupDisconnect(position) {
+  window.ui.updateMultiCupConnectionStatus(position, false);
+  showToast(`Cup ${position} disconnected unexpectedly!`, 'warning');
+}
+
+/**
+ * Handle multi-cup reconnection
+ */
+function onMultiCupReconnect(position) {
+  window.ui.updateMultiCupConnectionStatus(position, true);
+  showToast(`✅ Cup ${position} reconnected successfully!`, 'success');
+}
+
+/**
+ * Process uploaded image for multi-cup display
+ */
+async function processMultiCupImage() {
+  const fileInput = document.getElementById('multiCupImageInput');
+  const file = fileInput.files[0];
+
+  if (!file) {
+    showToast('Please select an image file', 'warning');
+    return;
+  }
+
+  try {
+    showToast('Processing image for multi-cup display...', 'info');
+
+    // Get current layout
+    const layout = document.querySelector('input[name="layout"]:checked').value;
+
+    // Get algorithm
+    const algorithm = document.getElementById('multiCupAlgorithm').value;
+
+    // Process and split image
+    const result = await window.imageSplitter.processImageForMultiCup(file, {
+      algorithm: algorithm,
+      maintainAspect: true
+    }, layout);
+
+    // Store result
+    multiCupProcessedData = result;
+
+    // Show preview section
+    document.getElementById('multiCupPreviewSection').classList.remove('hidden');
+    document.getElementById('multiCupSendSection').classList.remove('hidden');
+
+    // Render composite preview
+    const compositeCanvas = document.getElementById('compositePreview');
+    const compositePreview = window.imageSplitter.generateCompositePreview(result.chunks, layout);
+    const ctx = compositeCanvas.getContext('2d');
+    compositeCanvas.width = compositePreview.width;
+    compositeCanvas.height = compositePreview.height;
+    ctx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+    ctx.drawImage(compositePreview, 0, 0);
+
+    // Debug: Log chunk dimensions
+    console.log('🔍 DEBUG: Rendering individual cup previews');
+    for (let i = 0; i < 4; i++) {
+      const chunk = result.chunks[i];
+      console.log(`  Cup ${i} chunk: ${chunk.length} rows × ${chunk[0]?.length} cols`);
+
+      // Count black pixels in each chunk
+      let blackPixels = 0;
+      for (let row = 0; row < chunk.length; row++) {
+        for (let col = 0; col < chunk[row].length; col++) {
+          if (chunk[row][col] === 1) blackPixels++;
+        }
+      }
+      console.log(`  Cup ${i} has ${blackPixels} black pixels`);
+    }
+
+    // Render individual cup previews
+    for (let i = 0; i < 4; i++) {
+      const cupCanvas = document.getElementById(`cup${i}Preview`);
+      const preview = result.chunkPreviews[i];
+      console.log(`  Cup ${i} preview canvas: ${preview.width}×${preview.height}`);
+      cupCanvas.width = preview.width;
+      cupCanvas.height = preview.height;
+      const cupCtx = cupCanvas.getContext('2d');
+      cupCtx.clearRect(0, 0, cupCanvas.width, cupCanvas.height);
+      cupCtx.drawImage(preview, 0, 0);
+    }
+
+    showToast('Image processed and split successfully!', 'success');
+    console.log(`✅ Image split into ${result.chunks.length} chunks for layout: ${layout}`);
+  } catch (error) {
+    console.error('Multi-cup image processing error:', error);
+    showToast(`Failed to process image: ${error.message}`, 'error');
+  }
+}
+
+/**
+ * Send split image to all connected cups
+ */
+async function sendToAllCups() {
+  if (!multiCupProcessedData) {
+    showToast('No processed image available. Please process an image first.', 'warning');
+    return;
+  }
+
+  const status = window.multiCupBLE.getConnectionStatus();
+  if (status.connected === 0) {
+    showToast('No cups connected. Please connect at least one cup.', 'warning');
+    return;
+  }
+
+  const sendBtn = document.getElementById('sendToAllCupsBtn');
+  const statusDiv = document.getElementById('multiCupSendStatus');
+
+  try {
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.textContent = `Sending to ${status.connected} cups...`;
+    }
+
+    if (statusDiv) {
+      statusDiv.textContent = `Sending to ${status.connected} connected cups...`;
+      statusDiv.classList.remove('hidden');
+    }
+
+    showToast(`Sending to ${status.connected} cups in parallel... This may take 15-30 seconds.`, 'info');
+
+    // Send to all connected cups in parallel
+    const result = await window.multiCupBLE.sendToAll(multiCupProcessedData.chunks, {
+      silent: false
+    });
+
+    if (result.success) {
+      showToast(`✅ Successfully sent to all ${result.successful} cups in ${(result.totalElapsed / 1000).toFixed(1)}s!`, 'success');
+      if (statusDiv) {
+        statusDiv.textContent = `✅ Sent to ${result.successful} cups in ${(result.totalElapsed / 1000).toFixed(1)}s`;
+        statusDiv.className = 'text-center text-sm text-green-600';
+      }
+    } else {
+      showToast(`⚠️ Partial success: ${result.successful} succeeded, ${result.failed} failed`, 'warning');
+      if (statusDiv) {
+        statusDiv.textContent = `⚠️ ${result.successful} succeeded, ${result.failed} failed`;
+        statusDiv.className = 'text-center text-sm text-yellow-600';
+      }
+    }
+  } catch (error) {
+    console.error('Failed to send to cups:', error);
+    showToast(`Error sending to cups: ${error.message}`, 'error');
+    if (statusDiv) {
+      statusDiv.textContent = `❌ Error: ${error.message}`;
+      statusDiv.className = 'text-center text-sm text-red-600';
+    }
+  } finally {
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = '🚀 Send to All Connected Cups';
+    }
+  }
+}
+
 // Make functions globally accessible
 window.processUploadedImage = processUploadedImage;
 window.applyProcessedImageToEditor = applyProcessedImageToEditor;
+window.connectMultiCup = connectMultiCup;
+window.processMultiCupImage = processMultiCupImage;
+window.sendToAllCups = sendToAllCups;
+window.onMultiCupDisconnect = onMultiCupDisconnect;
+window.onMultiCupReconnect = onMultiCupReconnect;

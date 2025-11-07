@@ -443,6 +443,171 @@ function showImageEditorPanel() {
   }
 }
 
+function showMultiCupPanel() {
+  hideAllFunctionPanels();
+  const panel = document.getElementById("multiCupPanel");
+  if (panel) {
+    panel.innerHTML = `
+      <h2 class="text-2xl font-semibold mb-4">🖼️ Multi-Cup Display System</h2>
+      <p class="text-gray-600 mb-6">Connect 4 cups to create a larger 96×24 pixel display!</p>
+
+      <!-- Layout Configuration -->
+      <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
+        <h3 class="text-lg font-medium mb-3">Display Layout</h3>
+        <div class="flex gap-3">
+          <label class="flex items-center">
+            <input type="radio" name="layout" value="grid_2x2" checked class="mr-2">
+            <span class="text-sm">2×2 Grid (96×24)</span>
+          </label>
+          <label class="flex items-center">
+            <input type="radio" name="layout" value="horizontal_1x4" class="mr-2">
+            <span class="text-sm">1×4 Horizontal (192×12)</span>
+          </label>
+          <label class="flex items-center">
+            <input type="radio" name="layout" value="vertical_4x1" class="mr-2">
+            <span class="text-sm">4×1 Vertical (48×48)</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Cup Connection Grid -->
+      <div class="bg-white p-4 rounded-lg mb-6 border border-gray-200">
+        <h3 class="text-lg font-medium mb-4">Cup Connections</h3>
+        <div id="cupGrid" class="grid grid-cols-2 gap-4 mb-4">
+          <!-- Cup 0: Top-Left -->
+          <div class="border-2 border-gray-300 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-semibold">Cup 0 (Top-Left)</span>
+              <span id="cup0Status" class="text-xs px-2 py-1 rounded bg-gray-200 text-gray-600">Not Connected</span>
+            </div>
+            <div id="cup0DeviceInfo" class="hidden"></div>
+            <button id="connectCup0Btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm">
+              Connect
+            </button>
+          </div>
+
+          <!-- Cup 1: Top-Right -->
+          <div class="border-2 border-gray-300 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-semibold">Cup 1 (Top-Right)</span>
+              <span id="cup1Status" class="text-xs px-2 py-1 rounded bg-gray-200 text-gray-600">Not Connected</span>
+            </div>
+            <div id="cup1DeviceInfo" class="hidden"></div>
+            <button id="connectCup1Btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm">
+              Connect
+            </button>
+          </div>
+
+          <!-- Cup 2: Bottom-Left -->
+          <div class="border-2 border-gray-300 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-semibold">Cup 2 (Bottom-Left)</span>
+              <span id="cup2Status" class="text-xs px-2 py-1 rounded bg-gray-200 text-gray-600">Not Connected</span>
+            </div>
+            <div id="cup2DeviceInfo" class="hidden"></div>
+            <button id="connectCup2Btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm">
+              Connect
+            </button>
+          </div>
+
+          <!-- Cup 3: Bottom-Right -->
+          <div class="border-2 border-gray-300 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-semibold">Cup 3 (Bottom-Right)</span>
+              <span id="cup3Status" class="text-xs px-2 py-1 rounded bg-gray-200 text-gray-600">Not Connected</span>
+            </div>
+            <div id="cup3DeviceInfo" class="hidden"></div>
+            <button id="connectCup3Btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm">
+              Connect
+            </button>
+          </div>
+        </div>
+        <div id="connectionSummary" class="text-sm text-gray-600">
+          Connected: <span id="connectedCount" class="font-semibold">0</span>/4
+        </div>
+      </div>
+
+      <!-- Image Upload Section -->
+      <div class="bg-gray-50 p-4 rounded-lg mb-6 border-2 border-dashed border-gray-300">
+        <h3 class="text-lg font-medium mb-3">Upload Large Image</h3>
+        <div class="mb-3">
+          <input type="file" id="multiCupImageInput" accept="image/*" class="block w-full text-sm text-gray-500
+            file:mr-4 file:py-2 file:px-4
+            file:rounded file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-500 file:text-white
+            hover:file:bg-blue-600
+            file:cursor-pointer cursor-pointer">
+        </div>
+
+        <!-- Processing Options (simplified) -->
+        <div class="space-y-3 mb-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Algorithm</label>
+            <select id="multiCupAlgorithm" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+              <option value="floyd-steinberg">Floyd-Steinberg (Best for photos)</option>
+              <option value="atkinson">Atkinson (Cleaner)</option>
+              <option value="ordered">Ordered/Bayer</option>
+              <option value="threshold">Simple Threshold</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="processMultiCupImageBtn" disabled class="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded">
+          Process & Preview
+        </button>
+      </div>
+
+      <!-- Split Preview Section -->
+      <div id="multiCupPreviewSection" class="bg-white p-4 rounded-lg mb-6 border border-gray-200 hidden">
+        <h3 class="text-lg font-medium mb-3">Split Preview</h3>
+        <p class="text-sm text-gray-600 mb-3">Image divided into 4 chunks (one per cup):</p>
+
+        <div class="mb-4">
+          <p class="text-xs text-gray-500 mb-2">Composite View:</p>
+          <div class="flex justify-center mb-4">
+            <canvas id="compositePreview" class="border-2 border-gray-400"></canvas>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <p class="text-xs text-gray-500 mb-2">Individual Cup Views:</p>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="border border-gray-300 rounded p-2">
+              <p class="text-xs text-center mb-1">Cup 0 (Top-Left)</p>
+              <canvas id="cup0Preview" class="border border-gray-200 mx-auto"></canvas>
+            </div>
+            <div class="border border-gray-300 rounded p-2">
+              <p class="text-xs text-center mb-1">Cup 1 (Top-Right)</p>
+              <canvas id="cup1Preview" class="border border-gray-200 mx-auto"></canvas>
+            </div>
+            <div class="border border-gray-300 rounded p-2">
+              <p class="text-xs text-center mb-1">Cup 2 (Bottom-Left)</p>
+              <canvas id="cup2Preview" class="border border-gray-200 mx-auto"></canvas>
+            </div>
+            <div class="border border-gray-300 rounded p-2">
+              <p class="text-xs text-center mb-1">Cup 3 (Bottom-Right)</p>
+              <canvas id="cup3Preview" class="border border-gray-200 mx-auto"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Send Section -->
+      <div id="multiCupSendSection" class="hidden">
+        <button id="sendToAllCupsBtn" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 px-6 rounded-lg text-lg mb-3">
+          🚀 Send to All Connected Cups
+        </button>
+        <div id="multiCupSendStatus" class="text-center text-sm text-gray-600 hidden"></div>
+      </div>
+    `;
+    panel.classList.remove("hidden");
+
+    // Set up event listeners
+    setupMultiCupEventListeners();
+  }
+}
+
 function hideAllFunctionPanels() {
   document.getElementById("welcomeMessage").classList.add("hidden");
   const panels = [
@@ -451,6 +616,7 @@ function hideAllFunctionPanels() {
     "greetingPanel",
     "dynamicModePanel",
     "imageEditorPanel",
+    "multiCupPanel",
   ];
   panels.forEach((panel) => {
     const element = document.getElementById(panel);
@@ -575,6 +741,126 @@ function showToast(message, type = "info") {
   }, 3000);
 }
 
+// Setup event listeners for multi-cup panel
+function setupMultiCupEventListeners() {
+  // Layout change handlers
+  const layoutRadios = document.querySelectorAll('input[name="layout"]');
+  layoutRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const layout = e.target.value;
+      window.multiCupBLE.setLayout(layout);
+      window.imageSplitter.setLayout(layout);
+      showToast(`Layout changed to: ${layout}`, 'info');
+    });
+  });
+
+  // Cup connection handlers
+  for (let i = 0; i < 4; i++) {
+    const btn = document.getElementById(`connectCup${i}Btn`);
+    if (btn) {
+      btn.addEventListener('click', () => window.connectMultiCup(i));
+    }
+  }
+
+  // Image upload handler
+  const fileInput = document.getElementById('multiCupImageInput');
+  const processBtn = document.getElementById('processMultiCupImageBtn');
+
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      processBtn.disabled = !e.target.files.length;
+    });
+  }
+
+  if (processBtn) {
+    processBtn.addEventListener('click', () => window.processMultiCupImage());
+  }
+
+  // Send to all cups handler
+  const sendBtn = document.getElementById('sendToAllCupsBtn');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', () => window.sendToAllCups());
+  }
+}
+
+// Update multi-cup connection status display
+function updateMultiCupConnectionStatus(position, connected) {
+  const statusElement = document.getElementById(`cup${position}Status`);
+  const deviceInfoElement = document.getElementById(`cup${position}DeviceInfo`);
+  const btnElement = document.getElementById(`connectCup${position}Btn`);
+
+  if (statusElement) {
+    if (connected) {
+      statusElement.textContent = 'Connected';
+      statusElement.className = 'text-xs px-2 py-1 rounded bg-green-100 text-green-700';
+    } else {
+      statusElement.textContent = 'Not Connected';
+      statusElement.className = 'text-xs px-2 py-1 rounded bg-gray-200 text-gray-600';
+    }
+  }
+
+  // Update device info
+  if (deviceInfoElement) {
+    if (connected) {
+      const cup = window.multiCupBLE.cups[position];
+      const deviceName = cup.deviceName || 'Unknown';
+      const deviceIdBase64 = cup.deviceId || 'Unknown';
+
+      // Decode base64 device ID to hex for readability
+      let deviceIdHex = deviceIdBase64;
+      try {
+        // Decode base64 to binary
+        const binaryString = atob(deviceIdBase64);
+        // Convert to hex
+        const hexArray = [];
+        for (let i = 0; i < binaryString.length; i++) {
+          const hex = binaryString.charCodeAt(i).toString(16).padStart(2, '0');
+          hexArray.push(hex);
+        }
+        deviceIdHex = hexArray.join(':').toUpperCase();
+      } catch (e) {
+        // If decoding fails, use original
+        deviceIdHex = deviceIdBase64;
+      }
+
+      // Escape HTML to prevent XSS
+      const escapeHtml = (str) => {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+      };
+
+      deviceInfoElement.innerHTML = `
+        <div class="text-xs text-gray-600 mt-1 mb-2">
+          <div><strong>Name:</strong> ${escapeHtml(deviceName)}</div>
+          <div class="break-all"><strong>ID:</strong> <code class="text-xs bg-gray-100 px-1 rounded font-mono">${escapeHtml(deviceIdHex)}</code></div>
+        </div>
+      `;
+      deviceInfoElement.classList.remove('hidden');
+    } else {
+      deviceInfoElement.innerHTML = '';
+      deviceInfoElement.classList.add('hidden');
+    }
+  }
+
+  if (btnElement) {
+    if (connected) {
+      btnElement.textContent = 'Disconnect';
+      btnElement.className = 'w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-3 rounded text-sm';
+    } else {
+      btnElement.textContent = 'Connect';
+      btnElement.className = 'w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-3 rounded text-sm';
+    }
+  }
+
+  // Update connection count
+  const status = window.multiCupBLE.getConnectionStatus();
+  const countElement = document.getElementById('connectedCount');
+  if (countElement) {
+    countElement.textContent = status.connected;
+  }
+}
+
 // Make functions available globally
 window.ui = {
   showConnectionPanel,
@@ -586,6 +872,8 @@ window.ui = {
   showGreetingPanel,
   showDynamicModePanel,
   showImageEditorPanel,
+  showMultiCupPanel,
+  updateMultiCupConnectionStatus,
   updateGreetingStatus,
   updateModeStatus,
   updateImageStatus,
