@@ -16,7 +16,7 @@ class MultiCupBLEManager {
     };
 
     // Display layout configuration
-    this.layout = 'grid_2x2'; // Options: 'grid_2x2', 'horizontal_1x4', 'vertical_4x1'
+    this.layout = 'vertical_4x1'; // Default: portrait square (best for portraits)
 
     // Statistics
     this.stats = {
@@ -39,12 +39,10 @@ class MultiCupBLEManager {
     switch (this.layout) {
       case 'grid_2x2':
         return { width: 96, height: 24, rows: 2, cols: 2 };
-      case 'horizontal_1x4':
-        return { width: 192, height: 12, rows: 1, cols: 4 };
       case 'vertical_4x1':
         return { width: 48, height: 48, rows: 4, cols: 1 };
       default:
-        return { width: 96, height: 24, rows: 2, cols: 2 };
+        return { width: 48, height: 48, rows: 4, cols: 1 };
     }
   }
 
@@ -52,7 +50,7 @@ class MultiCupBLEManager {
    * Set display layout
    */
   setLayout(layout) {
-    if (['grid_2x2', 'horizontal_1x4', 'vertical_4x1'].includes(layout)) {
+    if (['grid_2x2', 'vertical_4x1'].includes(layout)) {
       this.layout = layout;
       console.log(`Layout changed to: ${layout}`);
       return true;

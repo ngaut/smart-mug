@@ -449,25 +449,59 @@ function showMultiCupPanel() {
   if (panel) {
     panel.innerHTML = `
       <h2 class="text-2xl font-semibold mb-4">🖼️ Multi-Cup Display System</h2>
-      <p class="text-gray-600 mb-6">Connect 4 cups to create a larger 96×24 pixel display!</p>
+      <p class="text-gray-600 mb-6">Connect 4 cups to create larger displays! (48×48 for portraits, 96×24 for landscapes)</p>
 
       <!-- Layout Configuration -->
       <div class="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
-        <h3 class="text-lg font-medium mb-3">Display Layout</h3>
-        <div class="flex gap-3">
-          <label class="flex items-center">
-            <input type="radio" name="layout" value="grid_2x2" checked class="mr-2">
-            <span class="text-sm">2×2 Grid (96×24)</span>
+        <h3 class="text-lg font-medium mb-3">📐 Display Layout</h3>
+        <p class="text-xs text-gray-600 mb-3">Choose based on your image type</p>
+        <div class="space-y-2">
+          <label class="flex items-start cursor-pointer hover:bg-blue-100 p-3 rounded border-2 border-blue-300">
+            <input type="radio" name="layout" value="vertical_4x1" checked class="mr-3 mt-1">
+            <div>
+              <div class="text-sm font-semibold">⭐ Portrait Square (48×48)</div>
+              <div class="text-xs text-gray-600">Best for faces, portraits, profile pictures</div>
+            </div>
           </label>
-          <label class="flex items-center">
-            <input type="radio" name="layout" value="horizontal_1x4" class="mr-2">
-            <span class="text-sm">1×4 Horizontal (192×12)</span>
-          </label>
-          <label class="flex items-center">
-            <input type="radio" name="layout" value="vertical_4x1" class="mr-2">
-            <span class="text-sm">4×1 Vertical (48×48)</span>
+          <label class="flex items-start cursor-pointer hover:bg-blue-100 p-3 rounded">
+            <input type="radio" name="layout" value="grid_2x2" class="mr-3 mt-1">
+            <div>
+              <div class="text-sm font-semibold">📺 Landscape Wide (96×24)</div>
+              <div class="text-xs text-gray-600">Panoramas, text banners, logos, wide images</div>
+            </div>
           </label>
         </div>
+      </div>
+
+      <!-- Gap Compensation -->
+      <div class="bg-yellow-50 p-4 rounded-lg mb-6 border border-yellow-200">
+        <h3 class="text-lg font-medium mb-2">🔧 Physical Gap Compensation</h3>
+        <p class="text-xs text-gray-600 mb-3">Adjust for physical spacing between your cups (bezels/frames)</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Horizontal Gap: <span id="gapHValue" class="font-mono text-blue-600">0</span>px
+            </label>
+            <input type="range" id="gapHSlider" min="0" max="20" value="0"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+              <span>0px (seamless)</span>
+              <span>20px</span>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Vertical Gap: <span id="gapVValue" class="font-mono text-blue-600">0</span>px
+            </label>
+            <input type="range" id="gapVSlider" min="0" max="10" value="0"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+              <span>0px (seamless)</span>
+              <span>10px</span>
+            </div>
+          </div>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">💡 Tip: Adjust these values until images line up across cup boundaries</p>
       </div>
 
       <!-- Cup Connection Grid -->
@@ -753,6 +787,26 @@ function setupMultiCupEventListeners() {
       showToast(`Layout changed to: ${layout}`, 'info');
     });
   });
+
+  // Gap compensation handlers
+  const gapHSlider = document.getElementById('gapHSlider');
+  const gapVSlider = document.getElementById('gapVSlider');
+  const gapHValue = document.getElementById('gapHValue');
+  const gapVValue = document.getElementById('gapVValue');
+
+  if (gapHSlider && gapVSlider) {
+    gapHSlider.addEventListener('input', (e) => {
+      const value = parseInt(e.target.value);
+      gapHValue.textContent = value;
+      window.imageSplitter.setGaps(value, parseInt(gapVSlider.value));
+    });
+
+    gapVSlider.addEventListener('input', (e) => {
+      const value = parseInt(e.target.value);
+      gapVValue.textContent = value;
+      window.imageSplitter.setGaps(parseInt(gapHSlider.value), value);
+    });
+  }
 
   // Cup connection handlers
   for (let i = 0; i < 4; i++) {

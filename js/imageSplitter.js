@@ -6,31 +6,58 @@ const CUP_HEIGHT = 12;
 
 class ImageSplitter {
   constructor() {
-    this.currentLayout = 'grid_2x2';
+    this.currentLayout = 'vertical_4x1'; // Default to portrait square (best for portraits)
     this.splitResult = null;
+
+    // Physical gap compensation (in pixels)
+    this.gapHorizontal = 0; // Gap between left and right cups
+    this.gapVertical = 0;   // Gap between top and bottom cups
   }
 
   /**
-   * Get target dimensions for current layout
+   * Set gap sizes for physical spacing between cups
+   * @param {number} horizontal - Horizontal gap in pixels
+   * @param {number} vertical - Vertical gap in pixels
+   */
+  setGaps(horizontal, vertical) {
+    this.gapHorizontal = Math.max(0, Math.min(horizontal, 20)); // Max 20px
+    this.gapVertical = Math.max(0, Math.min(vertical, 10));     // Max 10px
+    console.log(`Gap compensation: ${this.gapHorizontal}px horizontal, ${this.gapVertical}px vertical`);
+  }
+
+  /**
+   * Get target dimensions for current layout (including gaps)
    */
   getTargetDimensions(layout = this.currentLayout) {
+    let base;
     switch (layout) {
       case 'grid_2x2':
-        return { width: 96, height: 24, rows: 2, cols: 2 };
-      case 'horizontal_1x4':
-        return { width: 192, height: 12, rows: 1, cols: 4 };
+        base = { width: 96, height: 24, rows: 2, cols: 2 };
+        break;
       case 'vertical_4x1':
-        return { width: 48, height: 48, rows: 4, cols: 1 };
+        base = { width: 48, height: 48, rows: 4, cols: 1 };
+        break;
       default:
-        return { width: 96, height: 24, rows: 2, cols: 2 };
+        base = { width: 48, height: 48, rows: 4, cols: 1 };
     }
+
+    // Add gaps to dimensions
+    // Gaps appear between cups: (cols-1) horizontal gaps, (rows-1) vertical gaps
+    const totalWidth = base.width + (this.gapHorizontal * (base.cols - 1));
+    const totalHeight = base.height + (this.gapVertical * (base.rows - 1));
+
+    return {
+      ...base,
+      width: totalWidth,
+      height: totalHeight
+    };
   }
 
   /**
    * Set layout configuration
    */
   setLayout(layout) {
-    if (['grid_2x2', 'horizontal_1x4', 'vertical_4x1'].includes(layout)) {
+    if (['grid_2x2', 'vertical_4x1'].includes(layout)) {
       this.currentLayout = layout;
       return true;
     }
@@ -38,43 +65,34 @@ class ImageSplitter {
   }
 
   /**
-   * Calculate cup position boundaries for given layout
+   * Calculate cup position boundaries for given layout (accounting for gaps)
    * @returns Array of 4 boundary objects: { startRow, endRow, startCol, endCol }
    */
   getCupBoundaries(layout = this.currentLayout) {
     const boundaries = [];
+    const gapH = this.gapHorizontal;
+    const gapV = this.gapVertical;
 
     switch (layout) {
       case 'grid_2x2':
-        // 96×24 grid: 2 rows, 2 cols
-        // Cup 0: top-left
+        // 96×24 grid + gaps: 2 rows, 2 cols
+        // Cup 0: top-left (no offset)
         boundaries.push({ startRow: 0, endRow: 12, startCol: 0, endCol: 48 });
-        // Cup 1: top-right
-        boundaries.push({ startRow: 0, endRow: 12, startCol: 48, endCol: 96 });
-        // Cup 2: bottom-left
-        boundaries.push({ startRow: 12, endRow: 24, startCol: 0, endCol: 48 });
-        // Cup 3: bottom-right
-        boundaries.push({ startRow: 12, endRow: 24, startCol: 48, endCol: 96 });
-        break;
-
-      case 'horizontal_1x4':
-        // 192×12 strip: 1 row, 4 cols
-        for (let i = 0; i < 4; i++) {
-          boundaries.push({
-            startRow: 0,
-            endRow: 12,
-            startCol: i * 48,
-            endCol: (i + 1) * 48
-          });
-        }
+        // Cup 1: top-right (skip horizontal gap)
+        boundaries.push({ startRow: 0, endRow: 12, startCol: 48 + gapH, endCol: 96 + gapH });
+        // Cup 2: bottom-left (skip vertical gap)
+        boundaries.push({ startRow: 12 + gapV, endRow: 24 + gapV, startCol: 0, endCol: 48 });
+        // Cup 3: bottom-right (skip both gaps)
+        boundaries.push({ startRow: 12 + gapV, endRow: 24 + gapV, startCol: 48 + gapH, endCol: 96 + gapH });
         break;
 
       case 'vertical_4x1':
-        // 48×48 column: 4 rows, 1 col
+        // 48×48 column + gaps: 4 rows, 1 col
         for (let i = 0; i < 4; i++) {
+          const rowOffset = i * gapV; // Accumulate gaps
           boundaries.push({
-            startRow: i * 12,
-            endRow: (i + 1) * 12,
+            startRow: i * 12 + rowOffset,
+            endRow: (i + 1) * 12 + rowOffset,
             startCol: 0,
             endCol: 48
           });
@@ -93,6 +111,7 @@ class ImageSplitter {
    */
   splitGrid(grid, layout = this.currentLayout) {
     const boundaries = this.getCupBoundaries(layout);
+    const dimensions = this.getTargetDimensions(layout);
     const chunks = [];
 
     // Debug: Check input grid dimensions
@@ -102,7 +121,7 @@ class ImageSplitter {
 
     for (let cupIndex = 0; cupIndex < 4; cupIndex++) {
       const { startRow, endRow, startCol, endCol } = boundaries[cupIndex];
-      const chunk = [];
+      let chunk = [];
 
       console.log(`  Cup ${cupIndex}: rows ${startRow}-${endRow}, cols ${startCol}-${endCol}`);
 
@@ -121,7 +140,7 @@ class ImageSplitter {
       }
 
       chunks.push(chunk);
-      console.log(`  Cup ${cupIndex}: chunk is ${chunk.length}×${chunk[0].length}`);
+      console.log(`  Cup ${cupIndex}: final chunk is ${chunk.length}×${chunk[0].length}`);
     }
 
     return chunks;
@@ -206,26 +225,30 @@ class ImageSplitter {
     console.log('🔍 generateChunkPreviews: Creating previews for', chunks.length, 'chunks');
 
     for (let i = 0; i < 4; i++) {
-      const canvas = document.createElement('canvas');
-      canvas.width = CUP_WIDTH * 4; // 4x scale for visibility
-      canvas.height = CUP_HEIGHT * 4;
-      const ctx = canvas.getContext('2d');
-
-      // Draw the chunk
       const grid = chunks[i];
+
+      // Get actual chunk dimensions
+      const chunkHeight = grid.length;
+      const chunkWidth = grid[0] ? grid[0].length : 0;
+
+      const canvas = document.createElement('canvas');
+      const scale = 4; // 4x scale for visibility
+      canvas.width = chunkWidth * scale;
+      canvas.height = chunkHeight * scale;
+      const ctx = canvas.getContext('2d');
 
       // Count black pixels for this chunk
       let blackPixels = 0;
-      for (let row = 0; row < CUP_HEIGHT; row++) {
-        for (let col = 0; col < CUP_WIDTH; col++) {
+      for (let row = 0; row < chunkHeight; row++) {
+        for (let col = 0; col < chunkWidth; col++) {
           const pixel = grid[row][col];
           if (pixel === 1) blackPixels++;
           ctx.fillStyle = pixel === 1 ? '#000000' : '#FFFFFF';
-          ctx.fillRect(col * 4, row * 4, 4, 4);
+          ctx.fillRect(col * scale, row * scale, scale, scale);
         }
       }
 
-      console.log(`  Preview ${i}: ${canvas.width}×${canvas.height}, ${blackPixels} black pixels`);
+      console.log(`  Preview ${i}: ${canvas.width}×${canvas.height} (${chunkWidth}×${chunkHeight}), ${blackPixels} black pixels`);
       previews.push(canvas);
     }
 
@@ -247,9 +270,41 @@ class ImageSplitter {
     canvas.height = dimensions.height * scale;
     const ctx = canvas.getContext('2d');
 
-    // Fill background
+    // Fill background (white)
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Fill gap areas with light gray to visualize gaps
+    if (this.gapHorizontal > 0 || this.gapVertical > 0) {
+      ctx.fillStyle = '#E0E0E0';
+
+      // Draw horizontal gaps
+      const boundaries = this.getCupBoundaries(layout);
+      for (let i = 0; i < 4; i++) {
+        const { startRow, endRow, startCol, endCol } = boundaries[i];
+
+        // Check if there's a cup to the right (horizontal gap)
+        for (let j = 0; j < 4; j++) {
+          if (i !== j) {
+            const other = boundaries[j];
+            // If other cup starts where this ends (with a gap)
+            if (Math.abs(other.startCol - endCol) > 0 && Math.abs(other.startCol - endCol) <= this.gapHorizontal &&
+                startRow === other.startRow) {
+              // Draw horizontal gap
+              ctx.fillRect(endCol * scale, startRow * scale,
+                          (other.startCol - endCol) * scale, (endRow - startRow) * scale);
+            }
+            // If other cup starts below this (with a gap)
+            if (Math.abs(other.startRow - endRow) > 0 && Math.abs(other.startRow - endRow) <= this.gapVertical &&
+                startCol === other.startCol) {
+              // Draw vertical gap
+              ctx.fillRect(startCol * scale, endRow * scale,
+                          (endCol - startCol) * scale, (other.startRow - endRow) * scale);
+            }
+          }
+        }
+      }
+    }
 
     // Draw each chunk at correct position
     const boundaries = this.getCupBoundaries(layout);
@@ -258,8 +313,12 @@ class ImageSplitter {
       const { startRow, startCol } = boundaries[cupIndex];
       const grid = chunks[cupIndex];
 
-      for (let row = 0; row < CUP_HEIGHT; row++) {
-        for (let col = 0; col < CUP_WIDTH; col++) {
+      // Get actual chunk dimensions
+      const chunkHeight = grid.length;
+      const chunkWidth = grid[0] ? grid[0].length : 0;
+
+      for (let row = 0; row < chunkHeight; row++) {
+        for (let col = 0; col < chunkWidth; col++) {
           const pixel = grid[row][col];
           if (pixel === 1) {
             ctx.fillStyle = '#000000';
@@ -270,14 +329,14 @@ class ImageSplitter {
         }
       }
 
-      // Draw cup boundaries (optional, for debugging)
+      // Draw cup boundaries (red borders)
       ctx.strokeStyle = '#FF0000';
       ctx.lineWidth = 2;
       ctx.strokeRect(
         startCol * scale,
         startRow * scale,
-        CUP_WIDTH * scale,
-        CUP_HEIGHT * scale
+        chunkWidth * scale,
+        chunkHeight * scale
       );
     }
 
