@@ -32,22 +32,40 @@ class ImageProcessor {
    * @param {HTMLImageElement} img - Source image
    * @param {number} width - Target width
    * @param {number} height - Target height
-   * @param {boolean} maintainAspect - Whether to maintain aspect ratio
+   * @param {string} fitMode - 'contain' (default) or 'cover'
    * @returns {ImageData}
    */
-  resizeImage(img, width, height, maintainAspect = true) {
+  resizeImage(img, width, height, fitMode = 'contain') {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+
+    // Enable high quality smoothing
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     let drawWidth = width;
     let drawHeight = height;
     let offsetX = 0;
     let offsetY = 0;
 
-    if (maintainAspect) {
-      const imgAspect = img.width / img.height;
-      const targetAspect = width / height;
+    const imgAspect = img.width / img.height;
+    const targetAspect = width / height;
 
+    if (fitMode === 'cover') {
+      // Cover: Fill the entire area, cropping if necessary
+      if (imgAspect > targetAspect) {
+        // Image is wider than target - crop width
+        drawHeight = height;
+        drawWidth = height * imgAspect;
+        offsetX = (width - drawWidth) / 2;
+      } else {
+        // Image is taller than target - crop height
+        drawWidth = width;
+        drawHeight = width / imgAspect;
+        offsetY = (height - drawHeight) / 2;
+      }
+    } else {
+      // Contain: Fit entire image within area (letterboxing)
       if (imgAspect > targetAspect) {
         // Image is wider - fit to width
         drawWidth = width;
@@ -210,35 +228,46 @@ class ImageProcessor {
   }
 
   /**
-   * Process image file and return grid data ready for display
+   * Process an image file and return binary grid
    * @param {File} file - Image file
    * @param {Object} options - Processing options
-   * @returns {Promise<Object>} - {grid, preview, originalImage, analysis}
+   * @returns {Object} - { grid, preview, isTemporal, frames }
    */
   async processImage(file, options = {}) {
     const {
       threshold = 128,
-      algorithm = 'floyd-steinberg', // 'floyd-steinberg', 'atkinson', 'ordered', 'threshold'
-      maintainAspect = true,
-      brightness = 0,      // -100 to 100
-      contrast = 0,        // -100 to 100
-      sharpen = 0,         // 0 to 2
-      autoContrast = false, // Histogram equalization
-      targetWidth = this.IMAGE_WIDTH,   // Allow custom width (default 48)
-      targetHeight = this.IMAGE_HEIGHT  // Allow custom height (default 12)
+      algorithm = 'floyd-steinberg',
+      fitMode = 'contain',
+      brightness = 0,
+      contrast = 0,
+      gamma = 1.0,
+      sharpen = 0,
+      autoContrast = false,
+      targetWidth = this.IMAGE_WIDTH,
+      targetHeight = this.IMAGE_HEIGHT
     } = options;
+
+    console.log(`Processing image: ${file.name}, algorithm=${algorithm}, size=${targetWidth}x${targetHeight}`);
+
+    console.log(`Checking GIF: type=${file.type}, name=${file.name}`);
+    // Check if file is a GIF
+    if (file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')) {
+      console.log('GIF detected, attempting to process frames...');
+      try {
+        return await this.processGif(file, options);
+      } catch (error) {
+        console.warn('Failed to process GIF frames, falling back to static image:', error);
+      }
+    } else {
+      console.log('Not a GIF, processing as static image');
+    }
 
     try {
       // Load image
       const img = await this.loadImageFromFile(file);
 
-      // Resize to display dimensions (use targetWidth/targetHeight)
-      const imageData = this.resizeImage(
-        img,
-        targetWidth,
-        targetHeight,
-        maintainAspect
-      );
+      // Resize to display dimensions
+      const imageData = this.resizeImage(img, targetWidth, targetHeight, fitMode);
 
       // Convert to grayscale
       let grayscale = this.toGrayscale(imageData);
@@ -263,40 +292,31 @@ class ImageProcessor {
         grayscale = this.adjustContrast(grayscale, contrast);
       }
 
-      // 4. Sharpening
+      // 4. Gamma correction
+      if (gamma !== 1.0) {
+        grayscale = this.adjustGamma(grayscale, gamma);
+      }
+
+      // 5. Sharpening
       if (sharpen > 0) {
         grayscale = this.sharpen(grayscale, targetWidth, targetHeight, sharpen);
       }
 
       // Apply dithering algorithm
       let binaryData;
-      let frames = null; // For temporal dithering
+      let frames = null;
       let isTemporal = false;
 
-      switch (algorithm) {
-        case 'temporal':
-          isTemporal = true;
-          frames = this.temporalDither(grayscale, targetWidth, targetHeight, 4);
-          binaryData = frames[0]; // Use first frame as default
-          break;
-        case 'temporal-spatial':
-          isTemporal = true;
-          frames = this.temporalSpatialDither(grayscale, targetWidth, targetHeight, 4);
-          binaryData = frames[0]; // Use first frame as default
-          break;
-        case 'atkinson':
-          binaryData = this.atkinsonDither(grayscale, targetWidth, targetHeight, threshold);
-          break;
-        case 'ordered':
-          binaryData = this.orderedDither(grayscale, targetWidth, targetHeight);
-          break;
-        case 'threshold':
-          binaryData = this.simpleThreshold(grayscale, threshold);
-          break;
-        case 'floyd-steinberg':
-        default:
-          binaryData = this.floydSteinbergDither(grayscale, targetWidth, targetHeight, threshold);
-          break;
+      if (algorithm === 'temporal') {
+        isTemporal = true;
+        frames = this.temporalDither(grayscale, targetWidth, targetHeight, 4);
+        binaryData = frames[0];
+      } else if (algorithm === 'temporal-spatial') {
+        isTemporal = true;
+        frames = this.temporalSpatialDither(grayscale, targetWidth, targetHeight, 4);
+        binaryData = frames[0];
+      } else {
+        binaryData = this.dither(grayscale, targetWidth, targetHeight, algorithm, threshold);
       }
 
       // For temporal algorithms, process all frames
@@ -314,7 +334,6 @@ class ImageProcessor {
           numFrames: frames.length,
           originalImage: img,
           analysis,
-          // Keep single-frame compatibility
           grid: frameData[0].grid,
           preview: frameData[0].preview,
           binaryData: frameData[0].binaryData
@@ -323,8 +342,6 @@ class ImageProcessor {
 
       // Convert to grid format (single frame)
       const grid = this.toGridArray(binaryData, targetWidth, targetHeight);
-
-      // Create preview
       const preview = this.createPreviewCanvas(binaryData, targetWidth, targetHeight);
 
       return {
@@ -333,11 +350,133 @@ class ImageProcessor {
         preview,
         originalImage: img,
         binaryData,
-        analysis // Include analysis for UI feedback
+        analysis
       };
+
     } catch (error) {
       throw new Error(`Image processing failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Process GIF file to extract frames
+   */
+  async processGif(file, options) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buffer = new Uint8Array(e.target.result);
+          const gifReader = new GifReader(buffer);
+          const numFrames = gifReader.numFrames();
+
+          console.log(`GIF detected with ${numFrames} frames`);
+
+          if (numFrames <= 1) {
+            reject(new Error('Single frame GIF'));
+            return;
+          }
+
+          const frames = [];
+          const { targetWidth, targetHeight, fitMode, gamma, algorithm, threshold } = options;
+
+          const canvas = document.createElement('canvas');
+          canvas.width = gifReader.width;
+          canvas.height = gifReader.height;
+          const ctx = canvas.getContext('2d');
+          const frameImageData = ctx.createImageData(gifReader.width, gifReader.height);
+
+          for (let i = 0; i < numFrames; i++) {
+            gifReader.decodeAndBlitFrameRGBA(i, frameImageData.data);
+
+            const frameInfo = gifReader.frameInfo(i);
+            if (frameInfo.disposal === 2) {
+              ctx.clearRect(frameInfo.x, frameInfo.y, frameInfo.width, frameInfo.height);
+            }
+
+            ctx.putImageData(frameImageData, 0, 0);
+
+            const resizedData = this.resizeCanvasToData(canvas, targetWidth, targetHeight, fitMode);
+            const grayscale = this.toGrayscale(resizedData);
+            const gammaCorrected = this.adjustGamma(grayscale, gamma);
+            const binaryData = this.dither(gammaCorrected, targetWidth, targetHeight, algorithm || 'floyd-steinberg', threshold);
+            const grid = this.toGridArray(binaryData, targetWidth, targetHeight);
+
+            frames.push({
+              grid,
+              binaryData,
+              delay: frameInfo.delay * 10
+            });
+          }
+
+          const firstFrameBinary = frames[0].binaryData;
+          const firstFrameGrid = frames[0].grid;
+          const preview = this.createPreviewCanvas(firstFrameBinary, targetWidth, targetHeight);
+
+          resolve({
+            grid: firstFrameGrid,
+            preview,
+            width: targetWidth,
+            height: targetHeight,
+            isTemporal: true,
+            frames
+          });
+
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read GIF file'));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  /**
+   * Resize canvas source to target dimensions
+   */
+  resizeCanvasToData(sourceCanvas, width, height, fitMode = 'contain') {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    let drawWidth = width;
+    let drawHeight = height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    const imgAspect = sourceCanvas.width / sourceCanvas.height;
+    const targetAspect = width / height;
+
+    if (fitMode === 'cover') {
+      if (imgAspect > targetAspect) {
+        drawHeight = height;
+        drawWidth = height * imgAspect;
+        offsetX = (width - drawWidth) / 2;
+      } else {
+        drawWidth = width;
+        drawHeight = width / imgAspect;
+        offsetY = (height - drawHeight) / 2;
+      }
+    } else {
+      if (imgAspect > targetAspect) {
+        drawWidth = width;
+        drawHeight = width / imgAspect;
+        offsetY = (height - drawHeight) / 2;
+      } else {
+        drawHeight = height;
+        drawWidth = height * imgAspect;
+        offsetX = (width - drawWidth) / 2;
+      }
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(sourceCanvas, offsetX, offsetY, drawWidth, drawHeight);
+
+    return ctx.getImageData(0, 0, width, height);
   }
 
   /**
@@ -368,6 +507,29 @@ class ImageProcessor {
 
     for (let i = 0; i < grayscale.length; i++) {
       adjusted[i] = Math.max(0, Math.min(255, factor * (grayscale[i] - 128) + 128));
+    }
+
+    return adjusted;
+  }
+
+  /**
+   * Adjust gamma of grayscale data
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} gamma - Gamma value (default 1.0)
+   * @returns {Uint8ClampedArray}
+   */
+  adjustGamma(grayscale, gamma) {
+    const adjusted = new Uint8ClampedArray(grayscale.length);
+    const correction = 1 / gamma;
+
+    // Pre-calculate gamma table for performance
+    const gammaTable = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) {
+      gammaTable[i] = Math.round(255 * Math.pow(i / 255, correction));
+    }
+
+    for (let i = 0; i < grayscale.length; i++) {
+      adjusted[i] = gammaTable[grayscale[i]];
     }
 
     return adjusted;
@@ -422,6 +584,29 @@ class ImageProcessor {
     }
 
     return sharpened;
+  }
+
+  /**
+   * General dithering dispatcher
+   * @param {Uint8ClampedArray} grayscale
+   * @param {number} width
+   * @param {number} height
+   * @param {string} algorithm
+   * @param {number} threshold
+   * @returns {Uint8Array}
+   */
+  dither(grayscale, width, height, algorithm, threshold = 128) {
+    switch (algorithm) {
+      case 'atkinson':
+        return this.atkinsonDither(grayscale, width, height, threshold);
+      case 'ordered':
+        return this.orderedDither(grayscale, width, height);
+      case 'threshold':
+        return this.simpleThreshold(grayscale, threshold);
+      case 'floyd-steinberg':
+      default:
+        return this.floydSteinbergDither(grayscale, width, height, threshold);
+    }
   }
 
   /**
@@ -507,9 +692,9 @@ class ImageProcessor {
 
     // 4x4 Bayer matrix
     const bayerMatrix = [
-      [ 0, 8, 2, 10],
+      [0, 8, 2, 10],
       [12, 4, 14, 6],
-      [ 3, 11, 1, 9],
+      [3, 11, 1, 9],
       [15, 7, 13, 5]
     ];
 

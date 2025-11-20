@@ -2,6 +2,7 @@
 
 // Global variables
 let isConnected = false;
+let isDemoMode = false;
 let currentTool = 'draw';
 let isBluetoothSupported = navigator.bluetooth !== undefined;
 
@@ -13,10 +14,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('connectButton').disabled = true;
     updateDeviceStatus('Web Bluetooth is not supported in this browser. Please use Chrome or Edge.', true);
   }
-  
+
   // Set up event listeners
   document.getElementById('connectButton').addEventListener('click', connectToDevice);
-  
+
   // Set up function navigation
   document.getElementById('versionBtn').addEventListener('click', showVersionFunction);
   document.getElementById('temperatureBtn').addEventListener('click', showTemperatureFunction);
@@ -24,10 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('dynamicModeBtn').addEventListener('click', showDynamicModeFunction);
   document.getElementById('imageEditorBtn').addEventListener('click', showImageEditorFunction);
   document.getElementById('multiCupBtn').addEventListener('click', showMultiCupFunction);
-  
+
   // Initialize image editor
   window.imageEditor.initializeGrid();
-  
+
   // Set up global functions for UI callbacks
   window.refreshVersion = refreshVersion;
   window.refreshTemperature = refreshTemperature;
@@ -58,9 +59,9 @@ async function connectToDevice() {
     updateDeviceStatus('Web Bluetooth is not supported in this browser. Please use Chrome or Edge.', true);
     return;
   }
-  
+
   const connectButton = document.getElementById('connectButton');
-  
+
   if (isConnected) {
     // Disconnect
     bleManager.disconnect();
@@ -70,15 +71,15 @@ async function connectToDevice() {
     showConnectionPanel();
     return;
   }
-  
+
   try {
     connectButton.disabled = true;
     connectButton.textContent = 'Connecting...';
     updateDeviceStatus('Connecting...');
-    
+
     // Request device
     const device = await bleManager.requestDevice();
-    
+
     // Connect to device (device name verification happens inside connect method)
     await bleManager.connect();
 
@@ -117,27 +118,27 @@ function handleDisconnection() {
 
 // Function panel handlers
 function showVersionFunction() {
-  if (!isConnected) return;
+  if (!isConnected && !isDemoMode) return;
   showVersionPanel();
 }
 
 function showTemperatureFunction() {
-  if (!isConnected) return;
+  if (!isConnected && !isDemoMode) return;
   showTemperaturePanel();
 }
 
 function showGreetingFunction() {
-  if (!isConnected) return;
+  if (!isConnected && !isDemoMode) return;
   showGreetingPanel();
 }
 
 function showDynamicModeFunction() {
-  if (!isConnected) return;
+  if (!isConnected && !isDemoMode) return;
   showDynamicModePanel();
 }
 
 function showImageEditorFunction() {
-  if (!isConnected) return;
+  if (!isConnected && !isDemoMode) return;
   window.ui.showImageEditorPanel();
 }
 
@@ -148,8 +149,13 @@ function showMultiCupFunction() {
 
 // UI callback functions
 async function refreshVersion() {
-  if (!isConnected) return;
-  
+  if (!isConnected && !isDemoMode) return;
+
+  if (isDemoMode) {
+    showVersionPanel('v1.0.0 (Demo Mode)');
+    return;
+  }
+
   try {
     const version = await bleManager.readVersion();
     showVersionPanel(version);
@@ -160,8 +166,13 @@ async function refreshVersion() {
 }
 
 async function refreshTemperature() {
-  if (!isConnected) return;
-  
+  if (!isConnected && !isDemoMode) return;
+
+  if (isDemoMode) {
+    showTemperaturePanel(25 + Math.floor(Math.random() * 5)); // Random temp for demo
+    return;
+  }
+
   try {
     const temperature = await bleManager.readTemperature();
     showTemperaturePanel(temperature);
@@ -172,16 +183,21 @@ async function refreshTemperature() {
 }
 
 async function setGreetingMessage(message) {
-  if (!isConnected) return;
-  
+  if (!isConnected && !isDemoMode) return;
+
   if (!message || message.trim() === '') {
     updateGreetingStatus('Please enter a message', true);
     return;
   }
-  
+
   try {
-    await bleManager.setGreetingMessage(message);
-    updateGreetingStatus('Message set successfully');
+    if (isDemoMode) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
+      updateGreetingStatus('Message set successfully (Demo)');
+    } else {
+      await bleManager.setGreetingMessage(message);
+      updateGreetingStatus('Message set successfully');
+    }
   } catch (error) {
     console.error('Failed to set greeting message:', error);
     updateGreetingStatus('Error setting message', true);
@@ -189,11 +205,16 @@ async function setGreetingMessage(message) {
 }
 
 async function setDynamicMode(mode) {
-  if (!isConnected) return;
-  
+  if (!isConnected && !isDemoMode) return;
+
   try {
-    await bleManager.setDynamicMode(mode);
-    updateModeStatus('Mode set successfully');
+    if (isDemoMode) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
+      updateModeStatus('Mode set successfully (Demo)');
+    } else {
+      await bleManager.setDynamicMode(mode);
+      updateModeStatus('Mode set successfully');
+    }
   } catch (error) {
     console.error('Failed to set dynamic mode:', error);
     updateModeStatus('Error setting mode', true);
@@ -201,14 +222,14 @@ async function setDynamicMode(mode) {
 }
 
 async function sendImageData(imageData = null, options = {}) {
-  if (!isConnected) {
+  if (!isConnected && !isDemoMode) {
     updateImageStatus('Not connected to device', true);
     showToast('Please connect to device first', 'warning');
     return false;
   }
 
-  // Check actual connection status
-  if (!bleManager.isConnected()) {
+  // Check actual connection status (skip for demo mode)
+  if (!isDemoMode && !bleManager.isConnected()) {
     updateImageStatus('Device disconnected. Please reconnect.', true);
     showToast('Device disconnected. Please reconnect.', 'error');
     isConnected = false;
@@ -226,7 +247,12 @@ async function sendImageData(imageData = null, options = {}) {
 
     // Use provided imageData or get from editor
     const dataToSend = imageData || window.imageEditor.getGridData();
-    await bleManager.setImageData(dataToSend);
+
+    if (isDemoMode) {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate transmission
+    } else {
+      await bleManager.setImageData(dataToSend);
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`⚡ ${label} sent in ${elapsed}s`);
@@ -278,7 +304,7 @@ function hideConnectionPanel() {
 function updateDeviceStatus(status, isError = false) {
   const statusElement = document.getElementById('deviceStatus');
   const errorElement = document.getElementById('errorMessage');
-  
+
   if (isError) {
     statusElement.textContent = 'Error';
     statusElement.className = 'text-red-500';
@@ -294,7 +320,7 @@ function updateDeviceStatus(status, isError = false) {
 function showWelcomeMessage() {
   document.getElementById('welcomeMessage').classList.remove('hidden');
   // Hide all function panels
-  const panels = ['versionPanel', 'temperaturePanel', 'greetingPanel', 'dynamicModePanel', 'imageEditorPanel'];
+  const panels = ['versionPanel', 'temperaturePanel', 'greetingPanel', 'dynamicModePanel', 'imageEditorPanel', 'multiCupPanel'];
   panels.forEach(panel => {
     const element = document.getElementById(panel);
     if (element) element.classList.add('hidden');
@@ -323,7 +349,7 @@ function showVersionPanel(version = null) {
       `;
     }
     panel.classList.remove('hidden');
-    
+
     // Add event listener for refresh button
     document.getElementById('refreshVersionBtn').addEventListener('click', () => {
       window.refreshVersion();
@@ -353,7 +379,7 @@ function showTemperaturePanel(temperature = null) {
       `;
     }
     panel.classList.remove('hidden');
-    
+
     // Add event listener for refresh button
     document.getElementById('refreshTempBtn').addEventListener('click', () => {
       window.refreshTemperature();
@@ -377,7 +403,7 @@ function showGreetingPanel() {
       <div id="greetingStatus" class="mt-2 text-green-500 hidden"></div>
     `;
     panel.classList.remove('hidden');
-    
+
     // Add event listener for set button
     document.getElementById('setGreetingBtn').addEventListener('click', () => {
       const message = document.getElementById('greetingInput').value;
@@ -419,7 +445,7 @@ function showDynamicModePanel() {
       <div id="modeStatus" class="mt-2 text-green-500 hidden"></div>
     `;
     panel.classList.remove('hidden');
-    
+
     // Add event listener for set button
     document.getElementById('setModeBtn').addEventListener('click', () => {
       const selectedMode = document.querySelector('input[name="mode"]:checked').value;
@@ -430,7 +456,7 @@ function showDynamicModePanel() {
 
 function hideAllFunctionPanels() {
   document.getElementById('welcomeMessage').classList.add('hidden');
-  const panels = ['versionPanel', 'temperaturePanel', 'greetingPanel', 'dynamicModePanel', 'imageEditorPanel'];
+  const panels = ['versionPanel', 'temperaturePanel', 'greetingPanel', 'dynamicModePanel', 'imageEditorPanel', 'multiCupPanel'];
   panels.forEach(panel => {
     const element = document.getElementById(panel);
     if (element) element.classList.add('hidden');
@@ -440,7 +466,7 @@ function hideAllFunctionPanels() {
 function initializePixelGrid() {
   const grid = document.getElementById('pixelGrid');
   grid.innerHTML = '';
-  
+
   // Create 48x12 grid (576 pixels)
   for (let row = 0; row < 12; row++) {
     for (let col = 0; col < 48; col++) {
@@ -461,7 +487,7 @@ function initializePixelGrid() {
       grid.appendChild(pixel);
     }
   }
-  
+
   // Add mouseup event to the grid to stop drawing
   grid.addEventListener('mouseup', () => {
     if (window.imageEditor && window.imageEditor.stopDrawing) {
@@ -505,16 +531,17 @@ function updateImageStatus(message, isError = false) {
 // Add function content panels to the HTML dynamically
 function initializeFunctionPanels() {
   const functionContent = document.getElementById('functionContent');
-  
+
   // Create panels if they don't exist
   const panels = [
     { id: 'versionPanel', class: 'hidden' },
     { id: 'temperaturePanel', class: 'hidden' },
     { id: 'greetingPanel', class: 'hidden' },
     { id: 'dynamicModePanel', class: 'hidden' },
-    { id: 'imageEditorPanel', class: 'hidden' }
+    { id: 'imageEditorPanel', class: 'hidden' },
+    { id: 'multiCupPanel', class: 'hidden' }
   ];
-  
+
   panels.forEach(panel => {
     if (!document.getElementById(panel.id)) {
       const panelElement = document.createElement('div');
@@ -549,18 +576,21 @@ async function processUploadedImage() {
     const brightness = parseInt(document.getElementById('brightnessSlider').value);
     const contrast = parseInt(document.getElementById('contrastSlider').value);
     const sharpen = parseFloat(document.getElementById('sharpenSlider').value);
-    const autoContrast = document.getElementById('autoContrastCheckbox').checked;
+    const gamma = parseFloat(document.getElementById('gammaSlider').value);
+    const fitMode = document.getElementById('fitModeSelect').value;
     const maintainAspect = document.getElementById('maintainAspectCheckbox').checked;
 
     // Process image
     const result = await window.imageProcessor.processImage(file, {
-      algorithm: algorithm,
-      threshold: threshold,
-      brightness: brightness,
-      contrast: contrast,
-      sharpen: sharpen,
-      autoContrast: autoContrast,
-      maintainAspect: maintainAspect
+      algorithm,
+      threshold,
+      brightness,
+      contrast,
+      sharpen,
+      gamma,
+      fitMode,
+      autoContrast: document.getElementById('autoContrastCheckbox').checked,
+      maintainAspect: maintainAspect // Kept for backward compatibility if needed, but fitMode overrides
     });
 
     // Store processed data
@@ -981,9 +1011,17 @@ async function connectMultiCup(position) {
       btn.textContent = 'Connecting...';
     }
 
-    await window.multiCupBLE.connectCup(position);
-    window.ui.updateMultiCupConnectionStatus(position, true);
-    showToast(`Cup ${position} connected successfully!`, 'success');
+    if (isDemoMode) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
+      // Manually set connected state for demo
+      window.multiCupBLE.cups[position].connected = true;
+      window.ui.updateMultiCupConnectionStatus(position, true);
+      showToast(`Cup ${position} connected successfully! (Demo)`, 'success');
+    } else {
+      await window.multiCupBLE.connectCup(position);
+      window.ui.updateMultiCupConnectionStatus(position, true);
+      showToast(`Cup ${position} connected successfully!`, 'success');
+    }
   } catch (error) {
     console.error(`Failed to connect cup ${position}:`, error);
     showToast(`Error connecting cup ${position}: ${error.message}`, 'error');
@@ -1026,16 +1064,40 @@ async function processMultiCupImage() {
   try {
     showToast('Processing image for multi-cup display...', 'info');
 
+    // Load image to check dimensions
+    const img = await window.imageProcessor.loadImageFromFile(file);
+    const aspect = img.width / img.height;
+
     // Get current layout
-    const layout = document.querySelector('input[name="layout"]:checked').value;
+    let layout = document.querySelector('input[name="layout"]:checked').value;
+    let maintainAspect = true;
+
+    // Logic: If image is square-ish (aspect ~1) but user wants 2x2 (aspect 4),
+    // we must STRETCH it to fill the cups, otherwise it looks like "only two cups"
+    if (Math.abs(aspect - 1) < 0.5 && layout === 'grid_2x2') {
+      maintainAspect = false;
+      showToast('Stretching square image to fill 2x2 layout', 'info');
+    } else if (Math.abs(aspect - 1) < 0.5 && layout !== 'vertical_4x1' && layout !== 'grid_2x2') {
+      // Default behavior for other cases (if any)
+      // For now, if it's square and NOT 2x2, we might want to suggest vertical,
+      // but let's stick to the user's selection or default if they haven't chosen.
+      // If they chose vertical, it's fine.
+    }
+
+    // Update UI labels based on layout
+    updateMultiCupLabels(layout);
 
     // Get algorithm
     const algorithm = document.getElementById('multiCupAlgorithm').value;
+    const fitMode = document.getElementById('multiCupFitMode').value;
+    const gamma = parseFloat(document.getElementById('multiCupGammaSlider').value);
 
     // Process and split image
     const result = await window.imageSplitter.processImageForMultiCup(file, {
-      algorithm: algorithm,
-      maintainAspect: true
+      algorithm,
+      fitMode,
+      gamma,
+      maintainAspect: true // Default for multi-cup, but fitMode handles it
     }, layout);
 
     // Store result
@@ -1053,6 +1115,18 @@ async function processMultiCupImage() {
     compositeCanvas.height = compositePreview.height;
     ctx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
     ctx.drawImage(compositePreview, 0, 0);
+
+    // Check if result has frames (Animation)
+    const animControls = document.getElementById('multiCupAnimationControls');
+    const frameCountBadge = document.getElementById('multiCupFrameCount');
+
+    if (result.frames && result.frames.length > 1) {
+      animControls.classList.remove('hidden');
+      frameCountBadge.textContent = `${result.frames.length} frames`;
+      showToast(`Loaded animated GIF with ${result.frames.length} frames!`, 'success');
+    } else {
+      animControls.classList.add('hidden');
+    }
 
     // Debug: Log chunk dimensions
     console.log('🔍 DEBUG: Rendering individual cup previews');
@@ -1090,6 +1164,202 @@ async function processMultiCupImage() {
   }
 }
 
+
+
+// Multi-Cup Animation State
+let multiCupAnimationState = {
+  isPlaying: false,
+  currentFrame: 0,
+  intervalId: null,
+  mode: 'static', // 'static', 'scrollRight', 'scrollLeft', 'flashing'
+  frameDelay: 3000 // ms (must be > 1s per cup, so > 1s is safe, but for effect we want longer)
+};
+
+/**
+ * Play Multi-Cup Animation (GIF + Motion)
+ */
+async function playMultiCupAnimation() {
+  if (!multiCupProcessedData || !multiCupProcessedData.frames) {
+    showToast('No animation frames available. Please process a GIF/animated image.', 'warning');
+    return;
+  }
+
+  if (multiCupAnimationState.isPlaying) {
+    showToast('Animation already playing', 'warning');
+    return;
+  }
+
+  // Get selected motion mode
+  const modeSelect = document.getElementById('multiCupMotionMode');
+  const modeMap = {
+    'static': 0x00,
+    'scrollRight': 0x01,
+    'scrollLeft': 0x02,
+    'flashing': 0x03
+  };
+  const selectedModeStr = modeSelect ? modeSelect.value : 'static';
+  const selectedMode = modeMap[selectedModeStr] || 0x00;
+
+  multiCupAnimationState.isPlaying = true;
+  multiCupAnimationState.mode = selectedModeStr;
+  multiCupAnimationState.currentFrame = 0;
+
+  // Update UI
+  document.getElementById('playMultiCupAnimationBtn').classList.add('hidden');
+  document.getElementById('stopMultiCupAnimationBtn').classList.remove('hidden');
+  document.getElementById('multiCupAnimationStatus').classList.remove('hidden');
+
+  console.log(`🎬 Starting Multi-Cup Animation: ${multiCupProcessedData.frames.length} frames, Mode: ${selectedModeStr}`);
+  showToast('Starting animation... (Updates every few seconds)', 'info');
+
+  // Animation Loop Function
+  const animateLoop = async () => {
+    if (!multiCupAnimationState.isPlaying) return;
+
+    try {
+      const frameIndex = multiCupAnimationState.currentFrame;
+      const frameData = multiCupProcessedData.frames[frameIndex];
+      const totalFrames = multiCupProcessedData.frames.length;
+
+      // Update Status
+      const statusDiv = document.getElementById('multiCupAnimationStatus');
+      if (statusDiv) {
+        statusDiv.textContent = `Playing Frame ${frameIndex + 1}/${totalFrames} • Mode: ${selectedModeStr}`;
+      }
+
+      console.log(`▶️ Sending Frame ${frameIndex + 1}/${totalFrames}...`);
+
+      // Update Previews
+      updateMultiCupPreviews(frameIndex);
+
+      // Send Frame AND Mode
+      // We use sendToAllWithMode to ensure the mode is re-applied after image upload
+      // (Image upload often resets device to static mode)
+      await window.multiCupBLE.sendToAllWithMode(frameData.chunks, selectedMode, { silent: true });
+
+      // Advance Frame
+      multiCupAnimationState.currentFrame = (frameIndex + 1) % totalFrames;
+
+      // Schedule Next Loop
+      if (multiCupAnimationState.isPlaying) {
+        // Calculate delay: At least 2s, or more if user wants slow updates
+        // For now, hardcoded to ~3s to allow for transmission + viewing time
+        const delay = 3000;
+        multiCupAnimationState.intervalId = setTimeout(animateLoop, delay);
+      }
+
+    } catch (error) {
+      if (error.message === 'No cups connected') {
+        console.warn('Animation running in preview mode (no cups connected)');
+        // Continue loop even if no cups
+        multiCupAnimationState.currentFrame = (multiCupAnimationState.currentFrame + 1) % multiCupProcessedData.frames.length;
+        if (multiCupAnimationState.isPlaying) {
+          const delay = 3000;
+          multiCupAnimationState.intervalId = setTimeout(animateLoop, delay);
+        }
+      } else {
+        console.error('Animation loop error:', error);
+        showToast(`Animation stopped: ${error.message}`, 'error');
+        stopMultiCupAnimation();
+      }
+    }
+  };
+
+  // Start the loop
+  animateLoop();
+}
+
+/**
+ * Stop Multi-Cup Animation
+ */
+function stopMultiCupAnimation() {
+  multiCupAnimationState.isPlaying = false;
+  if (multiCupAnimationState.intervalId) {
+    clearTimeout(multiCupAnimationState.intervalId);
+    multiCupAnimationState.intervalId = null;
+  }
+
+  // Update UI
+  document.getElementById('playMultiCupAnimationBtn').classList.remove('hidden');
+  document.getElementById('stopMultiCupAnimationBtn').classList.add('hidden');
+  document.getElementById('multiCupAnimationStatus').classList.add('hidden');
+
+  showToast('Animation stopped', 'info');
+}
+
+/**
+ * Sync all cups (Reset to Frame 1 + Mode)
+ */
+async function syncMultiCupAnimation() {
+  // Stop any running animation first
+  if (multiCupAnimationState.isPlaying) {
+    stopMultiCupAnimation();
+  }
+
+  showToast('Syncing all cups...', 'info');
+
+  try {
+    // If we have frames, send the first one. If not, send the static image.
+    let chunksToSend;
+    if (multiCupProcessedData && multiCupProcessedData.frames) {
+      chunksToSend = multiCupProcessedData.frames[0].chunks;
+    } else if (multiCupProcessedData) {
+      chunksToSend = multiCupProcessedData.chunks;
+    } else {
+      showToast('No image data to sync', 'warning');
+      return;
+    }
+
+    // Get current mode
+    const modeSelect = document.getElementById('multiCupMotionMode');
+    const modeMap = {
+      'static': 0x00,
+      'scrollRight': 0x01,
+      'scrollLeft': 0x02,
+      'flashing': 0x03
+    };
+    const selectedMode = modeMap[modeSelect ? modeSelect.value : 'static'] || 0x00;
+
+    // Send
+    await window.multiCupBLE.sendToAllWithMode(chunksToSend, selectedMode);
+
+    // Reset preview to frame 0 if animated
+    if (multiCupProcessedData && multiCupProcessedData.frames) {
+      updateMultiCupPreviews(0);
+    }
+
+    showToast('✅ Sync Complete: All cups reset to start', 'success');
+
+  } catch (error) {
+    console.error('Sync failed:', error);
+    showToast('Sync failed', 'error');
+  }
+}
+
+/**
+ * Update Multi-Cup Previews for a specific frame
+ * @param {number} frameIndex 
+ */
+function updateMultiCupPreviews(frameIndex) {
+  if (!multiCupProcessedData || !multiCupProcessedData.frames || !multiCupProcessedData.frames[frameIndex]) {
+    return;
+  }
+
+  const frameData = multiCupProcessedData.frames[frameIndex];
+
+  for (let i = 0; i < 4; i++) {
+    const cupCanvas = document.getElementById(`cup${i}Preview`);
+    if (!cupCanvas) continue;
+
+    const preview = frameData.chunkPreviews[i];
+    if (!preview) continue;
+
+    const cupCtx = cupCanvas.getContext('2d');
+    cupCtx.clearRect(0, 0, cupCanvas.width, cupCanvas.height);
+    cupCtx.drawImage(preview, 0, 0);
+  }
+}
+
 /**
  * Send split image to all connected cups
  */
@@ -1100,7 +1370,18 @@ async function sendToAllCups() {
   }
 
   const status = window.multiCupBLE.getConnectionStatus();
-  if (status.connected === 0) {
+
+  // In demo mode, simulate all cups connected if none are "physically" connected but we want to test
+  // Actually, we should rely on the simulated connection state from connectMultiCup
+  // But for sendToAllCups, let's just check if we have any "connected" cups (simulated or real)
+
+  let connectedCount = status.connected;
+  if (isDemoMode) {
+    // Count simulated connections
+    connectedCount = window.multiCupBLE.cups.filter(c => c.connected).length;
+  }
+
+  if (connectedCount === 0) {
     showToast('No cups connected. Please connect at least one cup.', 'warning');
     return;
   }
@@ -1111,20 +1392,32 @@ async function sendToAllCups() {
   try {
     if (sendBtn) {
       sendBtn.disabled = true;
-      sendBtn.textContent = `Sending to ${status.connected} cups...`;
+      sendBtn.textContent = `Sending to ${connectedCount} cups...`;
     }
 
     if (statusDiv) {
-      statusDiv.textContent = `Sending to ${status.connected} connected cups...`;
+      statusDiv.textContent = `Sending to ${connectedCount} connected cups...`;
       statusDiv.classList.remove('hidden');
     }
 
-    showToast(`Sending to ${status.connected} cups in parallel... This may take 15-30 seconds.`, 'info');
+    showToast(`Sending to ${connectedCount} cups in parallel... This may take 15-30 seconds.`, 'info');
 
     // Send to all connected cups in parallel
-    const result = await window.multiCupBLE.sendToAll(multiCupProcessedData.chunks, {
-      silent: false
-    });
+    let result;
+    if (isDemoMode) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate sending
+      result = {
+        success: true,
+        totalElapsed: 2000,
+        successful: connectedCount,
+        failed: 0,
+        results: []
+      };
+    } else {
+      result = await window.multiCupBLE.sendToAll(multiCupProcessedData.chunks, {
+        silent: false
+      });
+    }
 
     if (result.success) {
       showToast(`✅ Successfully sent to all ${result.successful} cups in ${(result.totalElapsed / 1000).toFixed(1)}s!`, 'success');
@@ -1154,6 +1447,33 @@ async function sendToAllCups() {
   }
 }
 
+// Global state
+// let isConnected = false; // Removed duplicate
+// let isDemoMode = false; // Removed duplicate
+
+// ... (existing code)
+
+/**
+ * Skip connection and enter demo mode
+ */
+function skipConnection() {
+  isDemoMode = true;
+  isConnected = false; // Still technically not connected
+
+  // Update UI
+  const connectButton = document.getElementById('connectButton');
+  if (connectButton) {
+    connectButton.textContent = 'Connect to Device';
+    connectButton.disabled = false;
+  }
+
+  updateDeviceStatus('Demo Mode (No Device)', false);
+  hideConnectionPanel();
+  showWelcomeMessage();
+
+  showToast('Entered Demo Mode. You can test UI features without a device.', 'info');
+}
+
 // Make functions globally accessible
 window.processUploadedImage = processUploadedImage;
 window.applyProcessedImageToEditor = applyProcessedImageToEditor;
@@ -1162,3 +1482,18 @@ window.processMultiCupImage = processMultiCupImage;
 window.sendToAllCups = sendToAllCups;
 window.onMultiCupDisconnect = onMultiCupDisconnect;
 window.onMultiCupReconnect = onMultiCupReconnect;
+window.skipConnection = skipConnection;
+window.playMultiCupAnimation = playMultiCupAnimation;
+window.stopMultiCupAnimation = stopMultiCupAnimation;
+window.syncMultiCupAnimation = syncMultiCupAnimation;
+
+// Initialize panels when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  initializeFunctionPanels();
+
+  // Add skip button listener
+  const skipBtn = document.getElementById('skipButton');
+  if (skipBtn) {
+    skipBtn.addEventListener('click', skipConnection);
+  }
+});

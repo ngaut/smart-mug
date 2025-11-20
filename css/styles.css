@@ -15,7 +15,7 @@
 .pixel-grid {
   --grid-width: 48;
   --grid-height: 12;
-  
+
   display: grid;
   grid-template-columns: repeat(var(--grid-width), 1fr);
   grid-template-rows: repeat(var(--grid-height), 1fr);
@@ -75,4 +75,73 @@
   padding: 10px;
   border-radius: 4px;
   margin: 10px 0;
+}
+
+/* Realistic Cup Preview */
+.cup-container {
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+  /* Adjust based on your layout needs */
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  /* Exact aspect ratio of the cup image (800x800) */
+  background-image: url('../assets/cup_reference.jpeg');
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  border-radius: 12px;
+  /* box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); */
+  overflow: hidden;
+}
+
+.cup-screen-overlay {
+  position: absolute;
+  /* Calibrated values */
+  top: 20%;
+  left: 20%;
+  width: 50%;
+  height: 24%;
+
+  /* Visual effects for the screen */
+  background-color: rgba(0, 0, 0, 0.8);
+  /* Dark background for the screen */
+  border-radius: 2px;
+  /* Slight rounding */
+  box-shadow:
+    inset 0 0 10px rgba(0, 0, 0, 0.9),
+    /* Inner shadow for depth */
+    0 0 5px rgba(255, 255, 255, 0.1);
+  /* Subtle outer glow */
+
+  /* Flex to center the canvas if needed, though canvas will likely fill it */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.cup-screen-overlay canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  /* Stretch to fill the screen area */
+  image-rendering: pixelated;
+  /* Keep pixels sharp */
+  opacity: 0.9;
+  /* Slight transparency to blend with "glass" */
+  filter: brightness(1.2) contrast(1.1);
+  /* Make it pop a bit like an LED */
+}
+
+/* Add a subtle reflection/glare on top of the screen */
+.cup-screen-overlay::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 50%);
+  pointer-events: none;
 }

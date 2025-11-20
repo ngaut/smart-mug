@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link rel="stylesheet" href="css/styles.css">
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-100">
     <div class="container mx-auto px-4 py-8">
         <header class="text-center mb-8">
@@ -22,6 +24,9 @@
                 <button id="connectButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                     Connect to Device
                 </button>
+                <button id="skipButton" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                    Skip Connection
+                </button>
                 <div id="deviceStatus" class="text-gray-600">
                     Not connected
                 </div>
@@ -35,25 +40,37 @@
                 <!-- Navigation Sidebar -->
                 <div class="md:w-1/4">
                     <div class="bg-white rounded-lg shadow-md p-4">
+
                         <h2 class="text-lg font-semibold mb-4">Functions</h2>
                         <ul id="functionList" class="space-y-2">
                             <li>
-                                <button id="versionBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Read Version</button>
+                                <button id="versionBtn"
+                                    class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Read Version</button>
                             </li>
                             <li>
-                                <button id="temperatureBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Read Temperature</button>
+                                <button id="temperatureBtn"
+                                    class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Read
+                                    Temperature</button>
                             </li>
                             <li>
-                                <button id="greetingBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Greeting Message</button>
+                                <button id="greetingBtn"
+                                    class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Greeting
+                                    Message</button>
                             </li>
                             <li>
-                                <button id="dynamicModeBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Dynamic Mode</button>
+                                <button id="dynamicModeBtn"
+                                    class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Dynamic
+                                    Mode</button>
                             </li>
                             <li>
-                                <button id="imageEditorBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Static Image</button>
+                                <button id="imageEditorBtn"
+                                    class="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Set Static
+                                    Image</button>
                             </li>
                             <li>
-                                <button id="multiCupBtn" class="w-full text-left px-3 py-2 rounded hover:bg-gray-100 bg-blue-50 border-l-4 border-blue-500 font-semibold">🖼️ Multi-Cup Display</button>
+                                <button id="multiCupBtn"
+                                    class="w-full text-left px-3 py-2 rounded hover:bg-gray-100 bg-blue-50 border-l-4 border-blue-500 font-semibold">🖼️
+                                    Multi-Cup Display</button>
                             </li>
                         </ul>
                     </div>
@@ -82,12 +99,14 @@
     </div>
 
     <!-- Load scripts in order -->
-    <script src="js/ble.js?v=12"></script>
-    <script src="js/multiCupBLE.js?v=12"></script>
-    <script src="js/imageSplitter.js?v=12"></script>
-    <script src="js/ui.js?v=12"></script>
-    <script src="js/imageProcessor.js?v=12"></script>
-    <script src="js/imageEditor.js?v=12"></script>
-    <script src="js/main.js?v=12"></script>
+    <script src="js/ble.js?v=13"></script>
+    <script src="js/multiCupBLE.js?v=18"></script>
+    <script src="js/imageSplitter.js?v=18"></script>
+    <script src="js/ui.js?v=18"></script>
+    <script src="js/omggif.js?v=18"></script>
+    <script src="js/imageProcessor.js?v=18"></script>
+    <script src="js/imageEditor.js?v=18"></script>
+    <script src="js/main.js?v=18"></script>
 </body>
+
 </html>

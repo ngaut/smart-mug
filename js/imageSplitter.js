@@ -6,7 +6,7 @@ const CUP_HEIGHT = 12;
 
 class ImageSplitter {
   constructor() {
-    this.currentLayout = 'vertical_4x1'; // Default to portrait square (best for portraits)
+    this.currentLayout = 'grid_2x2'; // Default to Landscape Wide (user preference)
     this.splitResult = null;
 
     // Physical gap compensation (in pixels)
@@ -289,17 +289,17 @@ class ImageSplitter {
             const other = boundaries[j];
             // If other cup starts where this ends (with a gap)
             if (Math.abs(other.startCol - endCol) > 0 && Math.abs(other.startCol - endCol) <= this.gapHorizontal &&
-                startRow === other.startRow) {
+              startRow === other.startRow) {
               // Draw horizontal gap
               ctx.fillRect(endCol * scale, startRow * scale,
-                          (other.startCol - endCol) * scale, (endRow - startRow) * scale);
+                (other.startCol - endCol) * scale, (endRow - startRow) * scale);
             }
             // If other cup starts below this (with a gap)
             if (Math.abs(other.startRow - endRow) > 0 && Math.abs(other.startRow - endRow) <= this.gapVertical &&
-                startCol === other.startCol) {
+              startCol === other.startCol) {
               // Draw vertical gap
               ctx.fillRect(startCol * scale, endRow * scale,
-                          (endCol - startCol) * scale, (other.startRow - endRow) * scale);
+                (endCol - startCol) * scale, (other.startRow - endRow) * scale);
             }
           }
         }

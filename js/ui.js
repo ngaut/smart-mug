@@ -213,6 +213,12 @@ function showImageEditorPanel() {
               <input type="range" id="contrastSlider" min="-100" max="100" value="0" class="w-full h-2">
             </div>
 
+            <!-- Gamma -->
+            <div class="mb-2">
+              <label class="block text-xs text-gray-600 mb-1">Gamma: <span id="gammaValue">1.0</span></label>
+              <input type="range" id="gammaSlider" min="0.1" max="3.0" step="0.1" value="1.0" class="w-full h-2">
+            </div>
+
             <!-- Sharpening -->
             <div class="mb-2">
               <label class="block text-xs text-gray-600 mb-1">Sharpening: <span id="sharpenValue">0</span></label>
@@ -226,9 +232,18 @@ function showImageEditorPanel() {
             </div>
           </div>
 
-          <div class="flex items-center">
-            <input type="checkbox" id="maintainAspectCheckbox" checked class="mr-2">
-            <label for="maintainAspectCheckbox" class="text-sm text-gray-700">Maintain aspect ratio</label>
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center">
+              <label class="text-sm font-medium text-gray-700 mr-2">Fit Mode:</label>
+              <select id="fitModeSelect" class="text-sm border border-gray-300 rounded px-2 py-1">
+                <option value="contain">Contain (Letterbox)</option>
+                <option value="cover" selected>Cover (Fill)</option>
+              </select>
+            </div>
+            <div class="flex items-center">
+              <input type="checkbox" id="maintainAspectCheckbox" checked class="mr-2">
+              <label for="maintainAspectCheckbox" class="text-sm text-gray-700">Maintain aspect</label>
+            </div>
           </div>
         </div>
 
@@ -402,6 +417,8 @@ function showImageEditorPanel() {
     const contrastValue = document.getElementById("contrastValue");
     const sharpenSlider = document.getElementById("sharpenSlider");
     const sharpenValue = document.getElementById("sharpenValue");
+    const gammaSlider = document.getElementById("gammaSlider");
+    const gammaValue = document.getElementById("gammaValue");
 
     fileInput.addEventListener("change", (e) => {
       processBtn.disabled = !e.target.files.length;
@@ -422,6 +439,10 @@ function showImageEditorPanel() {
 
     sharpenSlider.addEventListener("input", (e) => {
       sharpenValue.textContent = parseFloat(e.target.value).toFixed(1);
+    });
+
+    gammaSlider.addEventListener("input", (e) => {
+      gammaValue.textContent = parseFloat(e.target.value).toFixed(1);
     });
 
     processBtn.addEventListener("click", () => {
@@ -456,15 +477,15 @@ function showMultiCupPanel() {
         <h3 class="text-lg font-medium mb-3">📐 Display Layout</h3>
         <p class="text-xs text-gray-600 mb-3">Choose based on your image type</p>
         <div class="space-y-2">
-          <label class="flex items-start cursor-pointer hover:bg-blue-100 p-3 rounded border-2 border-blue-300">
-            <input type="radio" name="layout" value="vertical_4x1" checked class="mr-3 mt-1">
+          <label class="flex items-start cursor-pointer hover:bg-blue-100 p-3 rounded">
+            <input type="radio" name="layout" value="vertical_4x1" class="mr-3 mt-1">
             <div>
               <div class="text-sm font-semibold">⭐ Portrait Square (48×48)</div>
               <div class="text-xs text-gray-600">Best for faces, portraits, profile pictures</div>
             </div>
           </label>
-          <label class="flex items-start cursor-pointer hover:bg-blue-100 p-3 rounded">
-            <input type="radio" name="layout" value="grid_2x2" class="mr-3 mt-1">
+          <label class="flex items-start cursor-pointer hover:bg-blue-100 p-3 rounded border-2 border-blue-300">
+            <input type="radio" name="layout" value="grid_2x2" checked class="mr-3 mt-1">
             <div>
               <div class="text-sm font-semibold">📺 Landscape Wide (96×24)</div>
               <div class="text-xs text-gray-600">Panoramas, text banners, logos, wide images</div>
@@ -576,14 +597,27 @@ function showMultiCupPanel() {
 
         <!-- Processing Options (simplified) -->
         <div class="space-y-3 mb-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Algorithm</label>
+              <select id="multiCupAlgorithm" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                <option value="floyd-steinberg">Floyd-Steinberg (Best for photos)</option>
+                <option value="atkinson">Atkinson (Cleaner)</option>
+                <option value="ordered">Ordered/Bayer</option>
+                <option value="threshold">Simple Threshold</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Fit Mode</label>
+              <select id="multiCupFitMode" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                <option value="contain">Contain (Letterbox)</option>
+                <option value="cover" selected>Cover (Fill)</option>
+              </select>
+            </div>
+          </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Algorithm</label>
-            <select id="multiCupAlgorithm" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
-              <option value="floyd-steinberg">Floyd-Steinberg (Best for photos)</option>
-              <option value="atkinson">Atkinson (Cleaner)</option>
-              <option value="ordered">Ordered/Bayer</option>
-              <option value="threshold">Simple Threshold</option>
-            </select>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Gamma Correction: <span id="multiCupGammaValue">1.0</span></label>
+            <input type="range" id="multiCupGammaSlider" min="0.1" max="3.0" step="0.1" value="1.0" class="w-full h-2">
           </div>
         </div>
 
@@ -606,22 +640,45 @@ function showMultiCupPanel() {
 
         <div class="mb-4">
           <p class="text-xs text-gray-500 mb-2">Individual Cup Views:</p>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="border border-gray-300 rounded p-2">
-              <p class="text-xs text-center mb-1">Cup 0 (Top-Left)</p>
-              <canvas id="cup0Preview" class="border border-gray-200 mx-auto"></canvas>
+          <div class="grid grid-cols-2 gap-6">
+            <!-- Cup 0 -->
+            <div class="flex flex-col items-center">
+              <p class="text-xs font-semibold text-gray-600 mb-2">Cup 0 (Top-Left)</p>
+              <div class="cup-container">
+                <div class="cup-screen-overlay">
+                  <canvas id="cup0Preview"></canvas>
+                </div>
+              </div>
             </div>
-            <div class="border border-gray-300 rounded p-2">
-              <p class="text-xs text-center mb-1">Cup 1 (Top-Right)</p>
-              <canvas id="cup1Preview" class="border border-gray-200 mx-auto"></canvas>
+            
+            <!-- Cup 1 -->
+            <div class="flex flex-col items-center">
+              <p class="text-xs font-semibold text-gray-600 mb-2">Cup 1 (Top-Right)</p>
+              <div class="cup-container">
+                <div class="cup-screen-overlay">
+                  <canvas id="cup1Preview"></canvas>
+                </div>
+              </div>
             </div>
-            <div class="border border-gray-300 rounded p-2">
-              <p class="text-xs text-center mb-1">Cup 2 (Bottom-Left)</p>
-              <canvas id="cup2Preview" class="border border-gray-200 mx-auto"></canvas>
+            
+            <!-- Cup 2 -->
+            <div class="flex flex-col items-center">
+              <p class="text-xs font-semibold text-gray-600 mb-2">Cup 2 (Bottom-Left)</p>
+              <div class="cup-container">
+                <div class="cup-screen-overlay">
+                  <canvas id="cup2Preview"></canvas>
+                </div>
+              </div>
             </div>
-            <div class="border border-gray-300 rounded p-2">
-              <p class="text-xs text-center mb-1">Cup 3 (Bottom-Right)</p>
-              <canvas id="cup3Preview" class="border border-gray-200 mx-auto"></canvas>
+            
+            <!-- Cup 3 -->
+            <div class="flex flex-col items-center">
+              <p class="text-xs font-semibold text-gray-600 mb-2">Cup 3 (Bottom-Right)</p>
+              <div class="cup-container">
+                <div class="cup-screen-overlay">
+                  <canvas id="cup3Preview"></canvas>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -629,9 +686,49 @@ function showMultiCupPanel() {
 
       <!-- Send Section -->
       <div id="multiCupSendSection" class="hidden">
-        <button id="sendToAllCupsBtn" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 px-6 rounded-lg text-lg mb-3">
-          🚀 Send to All Connected Cups
+        <!-- Motion Overlay Controls -->
+        <div class="bg-purple-50 p-4 rounded-lg mb-4 border border-purple-200">
+          <h3 class="text-lg font-medium mb-3">🎬 Dynamic GIF Player</h3>
+          
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Motion Overlay (Native Device Effect)</label>
+            <select id="multiCupMotionMode" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+              <option value="static">None (Static Image)</option>
+              <option value="scrollRight">Scroll Right to Left (Marquee)</option>
+              <option value="scrollLeft">Scroll Left to Right</option>
+              <option value="flashing">Flashing (Strobe)</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Combine frame updates with native scrolling for "Moving Picture" effects!</p>
+          </div>
+
+          <!-- Animation Controls (Hidden by default) -->
+          <div id="multiCupAnimationControls" class="hidden space-y-3">
+            <div class="flex items-center justify-between bg-white p-2 rounded border border-purple-100">
+              <span class="text-sm font-medium text-purple-800">Frame Animation Available!</span>
+              <span id="multiCupFrameCount" class="text-xs bg-purple-200 text-purple-800 px-2 py-1 rounded-full">0 frames</span>
+            </div>
+            
+            <div class="flex gap-2">
+              <button id="playMultiCupAnimationBtn" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">
+                ▶ Play GIF on Cups
+              </button>
+              <button id="stopMultiCupAnimationBtn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded hidden">
+                ⏹ Stop
+              </button>
+            </div>
+            
+            <div id="multiCupAnimationStatus" class="text-center text-sm text-purple-700 hidden"></div>
+          </div>
+        </div>
+
+        <button id="sendToAllCupsBtn" class="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-bold py-3 px-6 rounded-lg text-lg mb-3">
+          🚀 Send Single Frame to All Cups
         </button>
+        
+        <button id="syncCupsBtn" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded mb-3">
+          🔄 Sync All Cups (Reset)
+        </button>
+
         <div id="multiCupSendStatus" class="text-center text-sm text-gray-600 hidden"></div>
       </div>
     `;
@@ -670,7 +767,7 @@ function initializePixelGrid() {
       pixel.dataset.row = row;
       pixel.dataset.col = col;
       pixel.style.cursor = "pointer";
-      
+
       // Add event listeners for drawing
       pixel.addEventListener("mousedown", (e) => {
         e.preventDefault();
@@ -683,7 +780,7 @@ function initializePixelGrid() {
         window.startDrawing(row, col);
         window.stopDrawing();
       });
-      
+
       grid.appendChild(pixel);
     }
   }
@@ -749,9 +846,8 @@ function showToast(message, type = "info") {
     error: "bg-red-500",
   };
 
-  toast.className = `${baseClasses} ${
-    typeClasses[type] || typeClasses["info"]
-  }`;
+  toast.className = `${baseClasses} ${typeClasses[type] || typeClasses["info"]
+    }`;
   toast.textContent = message;
 
   // Add toast to container
@@ -774,6 +870,34 @@ function showToast(message, type = "info") {
     }, 300);
   }, 3000);
 }
+
+/**
+ * Update multi-cup labels based on layout
+ */
+function updateMultiCupLabels(layout) {
+  const labels = {
+    'vertical_4x1': ['Cup 0 (Top)', 'Cup 1 (Upper-Mid)', 'Cup 2 (Lower-Mid)', 'Cup 3 (Bottom)'],
+    'grid_2x2': ['Cup 0 (Top-Left)', 'Cup 1 (Top-Right)', 'Cup 2 (Bottom-Left)', 'Cup 3 (Bottom-Right)']
+  };
+
+  const currentLabels = labels[layout] || labels['vertical_4x1'];
+
+  for (let i = 0; i < 4; i++) {
+    const labelEl = document.querySelector(`#cupGrid > div:nth-child(${i + 1}) .font-semibold`);
+    if (labelEl) {
+      labelEl.textContent = currentLabels[i];
+    }
+
+    // Also update preview labels if they exist
+    const previewLabelEl = document.querySelector(`#multiCupPreviewSection .grid > div:nth-child(${i + 1}) .font-medium`);
+    if (previewLabelEl) {
+      previewLabelEl.textContent = currentLabels[i];
+    }
+  }
+}
+
+// Make it globally accessible
+window.updateMultiCupLabels = updateMultiCupLabels;
 
 // Setup event listeners for multi-cup panel
 function setupMultiCupEventListeners() {
@@ -834,6 +958,32 @@ function setupMultiCupEventListeners() {
   const sendBtn = document.getElementById('sendToAllCupsBtn');
   if (sendBtn) {
     sendBtn.addEventListener('click', () => window.sendToAllCups());
+  }
+
+  const gammaSlider = document.getElementById('multiCupGamma');
+  const gammaValue = document.getElementById('multiCupGammaValue');
+  if (gammaSlider && gammaValue) {
+    gammaSlider.addEventListener('input', (e) => {
+      gammaValue.textContent = parseFloat(e.target.value).toFixed(1);
+    });
+  }
+
+
+  // Dynamic GIF Player handlers
+  const playAnimBtn = document.getElementById('playMultiCupAnimationBtn');
+  const stopAnimBtn = document.getElementById('stopMultiCupAnimationBtn');
+  const syncBtn = document.getElementById('syncCupsBtn');
+
+  if (playAnimBtn) {
+    playAnimBtn.addEventListener('click', () => window.playMultiCupAnimation());
+  }
+
+  if (stopAnimBtn) {
+    stopAnimBtn.addEventListener('click', () => window.stopMultiCupAnimation());
+  }
+
+  if (syncBtn) {
+    syncBtn.addEventListener('click', () => window.syncMultiCupAnimation());
   }
 }
 

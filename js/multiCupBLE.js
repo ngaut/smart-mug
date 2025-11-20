@@ -346,6 +346,27 @@ class MultiCupBLEManager {
   }
 
   /**
+   * Send image chunks AND set dynamic mode for all cups
+   * @param {Array<Array<Array<number>>>} imageChunks
+   * @param {number} mode - Dynamic mode (0=Static, 1=Scroll Right, 2=Scroll Left, 3=Flash)
+   * @param {Object} options
+   */
+  async sendToAllWithMode(imageChunks, mode, options = {}) {
+    const { silent = false } = options;
+
+    // First, send the images
+    const sendResult = await this.sendToAll(imageChunks, options);
+
+    // If successful (or partially), set the mode
+    if (sendResult.successful > 0) {
+      if (!silent) console.log(`\n🔄 Setting mode ${mode} for all cups...`);
+      await this.setDynamicModeAll(mode);
+    }
+
+    return sendResult;
+  }
+
+  /**
    * Read version from specific cup
    */
   async readVersion(position) {
