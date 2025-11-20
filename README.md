@@ -4,19 +4,27 @@ Web-based control application for the SGUAI-C3 Smart Cup - a Bluetooth-enabled s
 
 ## Features
 
+### Single Cup Mode
 - 🔗 **Bluetooth Connectivity** - Web Bluetooth API for device pairing
 - 🌡️ **Temperature Monitoring** - Real-time sensor reading
 - 📝 **Text Display** - Send greeting messages (UTF-8, 20 char limit)
 - 🎬 **Display Modes** - Static, scrolling (both directions), flashing
 - 🎨 **Visual Editor** - WYSIWYG pixel grid editor with draw/erase/clear/fill tools
-- 📷 **Image Upload** - Upload photos with Floyd-Steinberg dithering for monochrome conversion
+- 📷 **Image Upload** - Upload photos with advanced dithering algorithms
+
+### Multi-Cup Display (NEW!)
+- 🖼️ **4-Cup Grid Layout** - Combine 4 cups into a 96×24 pixel display
+- 🎞️ **Animated GIF Support** - Upload and play animated GIFs across all cups
+- 🔄 **Motion Overlay** - Combine GIF animation with scrolling effects
+- 📺 **Live Preview** - Real-time animated preview of all 4 cups
+- ⚡ **Skip Connection Mode** - Test UI without physical devices
 
 ## Technology Stack
 
 - **Frontend:** Vanilla JavaScript (ES6+), HTML5, Tailwind CSS (CDN)
 - **Communication:** Web Bluetooth API
-- **Image Processing:** Canvas API, Floyd-Steinberg dithering algorithm
-- **Display:** 48×12 pixel monochrome LED matrix
+- **Image Processing:** Canvas API, Floyd-Steinberg dithering, omggif library
+- **Display:** 48×12 pixel monochrome LED matrix (single cup) or 96×24 (4-cup grid)
 
 ## Project Structure
 
@@ -25,15 +33,23 @@ Web-based control application for the SGUAI-C3 Smart Cup - a Bluetooth-enabled s
 ├── css/
 │   └── styles.css         # Custom styling for pixel grid
 ├── js/
-│   ├── ble.js            # Bluetooth communication layer
+│   ├── ble.js            # Bluetooth communication layer (single cup)
+│   ├── multiCupBLE.js    # Multi-cup BLE manager
 │   ├── ui.js             # UI components and panels
-│   ├── imageProcessor.js # Image processing and dithering
+│   ├── imageProcessor.js # Image processing, dithering, and GIF parsing
+│   ├── imageSplitter.js  # Multi-cup image splitting
 │   ├── imageEditor.js    # Pixel grid state management
+│   ├── omggif.js         # GIF parsing library
 │   └── main.js           # Application orchestration
 ├── assets/
-│   └── icons/
-│       └── favicon.svg
-└── PROTOCOL_SPEC.md      # Complete BLE protocol documentation
+│   ├── icons/
+│   │   └── favicon.svg
+│   ├── cup_reference.jpeg
+│   └── tidb-logo_preview.png
+├── calibration.html       # Screen area calibration tool
+├── generate_test_gif.py   # Test animation generator
+├── PROTOCOL_SPEC.md      # Complete BLE protocol documentation
+└── README.md             # This file
 ```
 
 ## Quick Start
@@ -49,87 +65,90 @@ python3 -m http.server 8080
 - Navigate to: http://localhost:8080
 - Enable Web Bluetooth in browser settings if needed
 
-### 3. Connect to Device
+### 3. Connect to Device(s)
+**Single Cup Mode:**
 1. Click "Connect to Device"
 2. Select "SGUAI-C3" from pairing dialog
 3. Wait for connection confirmation
 
+**Multi-Cup Mode:**
+1. Click "Multi-Cup Display" tab
+2. Click "Connect 4 Cups"
+3. Select each cup one by one (Cup 0-3)
+4. Or click "Skip Connection" to test UI without devices
+
 ### 4. Use Features
-- **Read Version/Temperature** - Query device information
-- **Set Greeting Message** - Send text (max 20 characters)
-- **Set Dynamic Mode** - Choose animation style
-- **Set Static Image** - Draw manually or upload photos
+- **Single Cup:** Send text, images, or use the pixel editor
+- **Multi-Cup:** Upload images/GIFs, select layout, and play animations
+
+## Multi-Cup Display System
+
+### Layouts
+- **Grid 2×2:** 4 cups in a 2×2 grid (96×24 pixels total)
+- **Landscape Wide:** 4 cups in a row (192×12 pixels total)
+
+### Dynamic GIF Player
+
+Upload animated GIFs and play them across all 4 cups with optional motion effects!
+
+**Features:**
+- **Automatic GIF Detection:** System detects multi-frame GIFs automatically
+- **Frame Extraction:** Parses GIF frames using omggif library
+- **Motion Overlay:** Combine frame animation with scrolling effects
+  - Static: Frame-by-frame animation only
+  - Scroll Right: Frames + rightward scrolling
+  - Scroll Left: Frames + leftward scrolling
+  - Flashing: Frames + flashing effect
+- **Live Preview:** See exactly what's playing on each cup
+- **Playback Controls:** Play, Stop, and Sync buttons
+- **Preview Mode:** Works without physical devices (Skip Connection)
+
+**Workflow:**
+1. Upload an animated GIF (or generate one with `generate_test_gif.py`)
+2. System automatically detects frames and shows animation controls
+3. Select a motion overlay mode (optional)
+4. Click "Play GIF on Cups"
+5. Watch the animated preview update in real-time
+6. Animation loops automatically every ~3 seconds per frame
+
+**Technical Details:**
+- Frame delay: ~3 seconds (allows time for BLE transmission)
+- Supports GIFs with any number of frames
+- Each frame is dithered and split across 4 cups
+- Preview updates synchronously with device updates
+- Graceful fallback when no cups connected (preview-only mode)
 
 ## Image Upload Feature
 
 ### Supported Formats
-- JPG, PNG, GIF
-- Any size (automatically resized to 48×12)
+- JPG, PNG, GIF (including animated GIFs)
+- Any size (automatically resized to target dimensions)
 
 ### Dithering Algorithms
 
-**🎬 Temporal (Animated - Recommended for best quality!):**
-- **Temporal PWM** - Creates perceived grayscale through frame animation (4 frames)
-- **Temporal + Floyd-Steinberg** - Hybrid approach for highest quality
-
-**📸 Spatial (Single Frame):**
+**Spatial (Single Frame):**
 - **Floyd-Steinberg** - Error diffusion, best for photos
 - **Atkinson** - Cleaner, less noise than Floyd-Steinberg
 - **Ordered/Bayer** - Pattern-based, good for textures
 - **Simple Threshold** - Fast, best for logos/text
 
 ### Image Enhancement
-- **Auto-Contrast** - Automatic histogram equalization
-- **Brightness** - Adjust -100 to +100
-- **Contrast** - Adjust -100 to +100
-- **Sharpening** - Enhance edges (0 to 2.0)
-- **Threshold** - Binary cutoff (0-255)
-- **Aspect Ratio** - Maintain or stretch
-
-### Temporal Dithering Workflow (NEW!)
-
-**Creates perceived grayscale from 1-bit display using animation:**
-
-1. Select "Temporal PWM" or "Temporal + Floyd-Steinberg" algorithm
-2. Upload and process image
-3. **Watch animated preview** - Shows perceived grayscale at 20 FPS
-4. Adjust FPS slider (5-60 FPS) to see different speeds
-5. **Choose workflow:**
-
-   **Option A: Best Single Frame (Recommended)**
-   - Watch animation to identify best-looking frame
-   - Click "Send Frame X" button for that specific frame
-   - Get best static image on device
-
-   **Option B: Device Animation (Experimental)**
-   - Click "🎬 Send Animation to Device (Loop)"
-   - Frames cycle on device (~35 second cycle)
-   - ⚠️ Too slow for perceived grayscale (BLE limitation)
-   - But demonstrates frame cycling capability
-
-**How Temporal Dithering Works:**
-- Generates 4 frames with different brightness thresholds
-- Bright pixels ON in all frames (100% duty cycle → appears bright)
-- Medium pixels ON in half frames (50% duty cycle → appears medium gray)
-- Dark pixels ON in few frames (25% duty cycle → appears dark)
-- When cycled rapidly, eye perceives smooth grayscale!
-
-**Browser vs Device:**
-- **Browser Preview**: 20 FPS → Beautiful perceived grayscale ✨
-- **Device**: 0.15 FPS → Individual frames visible, not grayscale ⚠️
-- **Limitation**: BLE too slow (needs 15+ FPS for temporal effect)
-
-See [TEMPORAL_DITHERING_REVIEW.md](TEMPORAL_DITHERING_REVIEW.md) for technical details.
+- **Fit Mode:** Contain (letterbox) or Cover (crop)
+- **Gamma Correction:** Adjust for LED display characteristics
+- **Brightness:** Adjust -100 to +100
+- **Contrast:** Adjust -100 to +100
+- **Sharpening:** Enhance edges (0 to 2.0)
+- **Threshold:** Binary cutoff (0-255)
+- **Auto-Contrast:** Automatic histogram equalization
 
 ### Standard Workflow
 1. Click "Choose File" and select image
 2. Choose algorithm and adjust enhancement settings
 3. Click "Process & Preview"
 4. Review processed result and image quality analysis
-5. For temporal: Watch animation, select best frame
-6. Click "Apply to Editor" to load into pixel grid (optional)
-7. Optionally edit manually with drawing tools
-8. Click "Send Frame X" or "Send to Cup" to transfer to device
+5. Click "Apply to Editor" to load into pixel grid (optional)
+6. Optionally edit manually with drawing tools
+7. Click "Send to Cup" to transfer to device
 
 **Note:** Image sending takes 15-30 seconds per frame. Be patient and wait for confirmation.
 
@@ -153,7 +172,7 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 ## Known Limitations
 
 1. **Device Response Time:** Image commands take 15-30 seconds to process
-2. **Temporal Dithering Speed:** Device animation too slow (~0.15 FPS) for perceived grayscale (needs 15+ FPS). Browser preview demonstrates ideal result.
+2. **Multi-Cup Animation Speed:** ~3 seconds per frame (BLE transmission limit)
 3. **No Generic Access Service:** Device doesn't expose standard Generic Access service (handled gracefully)
 4. **BLE Timeout:** Devices may auto-disconnect after inactivity (manual reconnect required)
 5. **Production Build:** Tailwind CDN should be replaced with npm installation for production
@@ -175,19 +194,28 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 - Try sending a simpler command (e.g., read temperature)
 - Reconnect if device disconnected
 
+### Multi-Cup Issues
+- Ensure all 4 cups are connected before processing images
+- Use "Skip Connection" to test UI without devices
+- Check that cups are in correct positions (Cup 0-3)
+
 ## Development Notes
 
 ### Script Load Order (Critical)
 ```html
-<script src="js/ble.js"></script>           <!-- 1. BLE manager -->
-<script src="js/ui.js"></script>            <!-- 2. UI components -->
-<script src="js/imageProcessor.js"></script> <!-- 3. Image processing -->
-<script src="js/imageEditor.js"></script>   <!-- 4. Grid state -->
-<script src="js/main.js"></script>          <!-- 5. Application logic -->
+<script src="js/ble.js"></script>           <!-- 1. Single-cup BLE manager -->
+<script src="js/multiCupBLE.js"></script>   <!-- 2. Multi-cup BLE manager -->
+<script src="js/imageSplitter.js"></script> <!-- 3. Image splitting -->
+<script src="js/ui.js"></script>            <!-- 4. UI components -->
+<script src="js/omggif.js"></script>        <!-- 5. GIF parsing -->
+<script src="js/imageProcessor.js"></script><!-- 6. Image processing -->
+<script src="js/imageEditor.js"></script>   <!-- 7. Grid state -->
+<script src="js/main.js"></script>          <!-- 8. Application logic -->
 ```
 
 ### Global Architecture
-- **BLEManager** (`window.bleManager`) - Singleton for BLE operations
+- **BLEManager** (`window.bleManager`) - Singleton for single-cup BLE operations
+- **MultiCupBLEManager** (`window.multiCupBLE`) - Singleton for multi-cup operations
 - **ImageEditor** (`window.imageEditor`) - Singleton for grid state
 - **ImageProcessor** (`window.imageProcessor`) - Singleton for image processing
 - **UI Functions** (`window.ui`) - Namespace for UI components
@@ -201,27 +229,24 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 ## Future Improvements
 
 ### Completed ✅
-- [x] Multiple dithering algorithms (Floyd-Steinberg, Atkinson, Ordered, Threshold, Temporal)
+- [x] Multiple dithering algorithms
 - [x] Brightness/contrast/sharpening adjustments
-- [x] Temporal dithering with animated preview
-- [x] Progress indicator for frame sending
 - [x] Image quality analysis with suggestions
+- [x] Multi-cup display system
+- [x] Animated GIF support
+- [x] Live preview with animation
+- [x] Motion overlay effects
+- [x] Skip connection mode for testing
 
-### Planned for Device Animation
-- [ ] **Faster BLE Protocol** - Compress/pipeline frame data
-- [ ] **Device Firmware Update** - Buffer multiple frames internally
-- [ ] **Device-Side Animation** - Send all frames once, device cycles autonomously
-- [ ] **Delta Encoding** - Only send pixel differences between frames
-- [ ] **Smart Frame Selection** - Auto-identify best single frame
-
-### General Improvements
+### Planned
 - [ ] Connection keepalive to prevent auto-disconnect
 - [ ] Auto-reconnect on disconnection
 - [ ] Built-in icon library
 - [ ] Image history/favorites
 - [ ] Installation as PWA
-- [ ] Perceptual dithering (more detail where eye looks)
-- [ ] Edge-aware dithering (preserve edges, dither smooth areas)
+- [ ] Faster frame transmission (compression/pipelining)
+- [ ] Device-side animation buffering
+- [ ] Delta encoding for frame differences
 
 ## License
 
@@ -230,5 +255,6 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 ## Acknowledgments
 
 - Floyd-Steinberg dithering algorithm
+- omggif library for GIF parsing
 - Web Bluetooth Community Group
 - Tailwind CSS team
