@@ -985,10 +985,36 @@ function setupMultiCupEventListeners() {
   if (syncBtn) {
     syncBtn.addEventListener('click', () => window.syncMultiCupAnimation());
   }
+
+  // Event delegation for rename and forget buttons
+  // This works even when buttons are dynamically re-created
+  if (!window.multiCupListenersInitialized) {
+    document.addEventListener('click', (e) => {
+      const target = e.target.closest('button[data-action]');
+      if (!target) return;
+
+      const action = target.dataset.action;
+      const position = parseInt(target.dataset.position);
+
+      console.log(`🎯 Event delegation captured: action=${action}, position=${position}`);
+
+      // Prevent event bubbling
+      e.stopPropagation();
+      e.preventDefault();
+
+      if (action === 'rename') {
+        window.renameDevice(position);
+      } else if (action === 'forget') {
+        window.forgetDevice(position);
+      }
+    });
+    window.multiCupListenersInitialized = true;
+  }
 }
 
 // Update multi-cup connection status display
 function updateMultiCupConnectionStatus(position, connected) {
+  console.log(`🖼️ updateMultiCupConnectionStatus called: position=${position}, connected=${connected}`);
   const statusElement = document.getElementById(`cup${position}Status`);
   const deviceInfoElement = document.getElementById(`cup${position}DeviceInfo`);
   const btnElement = document.getElementById(`connectCup${position}Btn`);
@@ -1010,22 +1036,9 @@ function updateMultiCupConnectionStatus(position, connected) {
       const deviceName = cup.deviceName || 'Unknown';
       const deviceIdBase64 = cup.deviceId || 'Unknown';
 
-      // Decode base64 device ID to hex for readability
-      let deviceIdHex = deviceIdBase64;
-      try {
-        // Decode base64 to binary
-        const binaryString = atob(deviceIdBase64);
-        // Convert to hex
-        const hexArray = [];
-        for (let i = 0; i < binaryString.length; i++) {
-          const hex = binaryString.charCodeAt(i).toString(16).padStart(2, '0');
-          hexArray.push(hex);
-        }
-        deviceIdHex = hexArray.join(':').toUpperCase();
-      } catch (e) {
-        // If decoding fails, use original
-        deviceIdHex = deviceIdBase64;
-      }
+      // Use the base64 device ID directly (Web Bluetooth IDs are not MAC addresses)
+      // We show the last 8 characters for brevity
+      const shortId = deviceIdBase64.length > 8 ? '...' + deviceIdBase64.slice(-8) : deviceIdBase64;
 
       // Escape HTML to prevent XSS
       const escapeHtml = (str) => {
@@ -1034,10 +1047,33 @@ function updateMultiCupConnectionStatus(position, connected) {
         return div.innerHTML;
       };
 
+      // Use detected MAC if available, otherwise use Browser ID
+      let idLabel = 'Browser ID';
+      let idValue = shortId;
+      let fullId = deviceIdBase64;
+
+      if (cup.macAddress) {
+        idLabel = 'MAC Address';
+        idValue = cup.macAddress;
+        fullId = cup.macAddress;
+      } else if (cup.deviceIdentifier) {
+        idLabel = cup.deviceIdentifier.type;
+        idValue = cup.deviceIdentifier.value;
+        fullId = cup.deviceIdentifier.value;
+      }
+
       deviceInfoElement.innerHTML = `
         <div class="text-xs text-gray-600 mt-1 mb-2">
           <div><strong>Name:</strong> ${escapeHtml(deviceName)}</div>
-          <div class="break-all"><strong>ID:</strong> <code class="text-xs bg-gray-100 px-1 rounded font-mono">${escapeHtml(deviceIdHex)}</code></div>
+          <div class="break-all" title="${escapeHtml(fullId)}"><strong>${idLabel}:</strong> <code class="text-xs bg-gray-100 px-1 rounded font-mono">${escapeHtml(idValue)}</code></div>
+        </div>
+        <div class="flex gap-2 mt-2">
+          <button data-action="rename" data-position="${position}" class="rename-device-btn text-xs px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-700">
+            ✏️ Rename
+          </button>
+          <button data-action="forget" data-position="${position}" class="forget-device-btn text-xs px-2 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700">
+            🗑️ Forget
+          </button>
         </div>
       `;
       deviceInfoElement.classList.remove('hidden');

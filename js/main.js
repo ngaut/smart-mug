@@ -15,6 +15,21 @@ document.addEventListener('DOMContentLoaded', () => {
     updateDeviceStatus('Web Bluetooth is not supported in this browser. Please use Chrome or Edge.', true);
   }
 
+  // Check if user was previously on Multi-Cup Display (auto-restore)
+  const lastPanel = localStorage.getItem('smartmug_last_panel');
+  if (lastPanel === 'multiCup') {
+    // Auto-skip connection and go directly to Multi-Cup Display
+    console.log("Restoring Multi-Cup Display panel...");
+    document.getElementById('connectionPanel').classList.add('hidden');
+    document.getElementById('mainContent').classList.remove('hidden');
+
+    // Restore Multi-Cup panel
+    setTimeout(() => {
+      showMultiCupFunction();
+    }, 100);
+  }
+
+
   // Set up event listeners
   document.getElementById('connectButton').addEventListener('click', connectToDevice);
 
@@ -144,7 +159,15 @@ function showImageEditorFunction() {
 
 function showMultiCupFunction() {
   // Multi-cup manages its own connections, so don't check isConnected
+  localStorage.setItem('smartmug_last_panel', 'multiCup');
   window.ui.showMultiCupPanel();
+
+  // Attempt to auto-reconnect to previously paired devices
+  if (window.multiCupBLE) {
+    window.multiCupBLE.autoReconnectAll().catch(err => {
+      console.error("Auto-reconnect failed:", err);
+    });
+  }
 }
 
 // UI callback functions
@@ -1015,6 +1038,9 @@ async function connectMultiCup(position) {
       await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
       // Manually set connected state for demo
       window.multiCupBLE.cups[position].connected = true;
+      // Simulate a Web Bluetooth ID (base64)
+      window.multiCupBLE.cups[position].deviceId = "c2ltdWxhdGVkX2lk_" + position;
+      window.multiCupBLE.cups[position].deviceName = "SGUAI-C3 (Demo)";
       window.ui.updateMultiCupConnectionStatus(position, true);
       showToast(`Cup ${position} connected successfully! (Demo)`, 'success');
     } else {
@@ -1235,7 +1261,11 @@ async function playMultiCupAnimation() {
       // Send Frame AND Mode
       // We use sendToAllWithMode to ensure the mode is re-applied after image upload
       // (Image upload often resets device to static mode)
-      await window.multiCupBLE.sendToAllWithMode(frameData.chunks, selectedMode, { silent: true });
+      if (isDemoMode) {
+        await new Promise(r => setTimeout(r, 100)); // Simulate fast update
+      } else {
+        await window.multiCupBLE.sendToAllWithMode(frameData.chunks, selectedMode, { silent: true });
+      }
 
       // Advance Frame
       multiCupAnimationState.currentFrame = (frameIndex + 1) % totalFrames;
@@ -1321,7 +1351,12 @@ async function syncMultiCupAnimation() {
     const selectedMode = modeMap[modeSelect ? modeSelect.value : 'static'] || 0x00;
 
     // Send
-    await window.multiCupBLE.sendToAllWithMode(chunksToSend, selectedMode);
+    // Send
+    if (isDemoMode) {
+      await new Promise(r => setTimeout(r, 500)); // Simulate sync
+    } else {
+      await window.multiCupBLE.sendToAllWithMode(chunksToSend, selectedMode);
+    }
 
     // Reset preview to frame 0 if animated
     if (multiCupProcessedData && multiCupProcessedData.frames) {
@@ -1378,7 +1413,7 @@ async function sendToAllCups() {
   let connectedCount = status.connected;
   if (isDemoMode) {
     // Count simulated connections
-    connectedCount = window.multiCupBLE.cups.filter(c => c.connected).length;
+    connectedCount = Object.values(window.multiCupBLE.cups).filter(c => c.connected).length;
   }
 
   if (connectedCount === 0) {
@@ -1474,6 +1509,112 @@ function skipConnection() {
   showToast('Entered Demo Mode. You can test UI features without a device.', 'info');
 }
 
+/**
+ * Rename a device at the specified position
+ */
+function renameDevice(position) {
+  const cup = window.multiCupBLE.cups[position];
+  if (!cup || !cup.connected) {
+    showToast('No device connected at this position', 'warning');
+    return;
+  }
+
+  const currentName = cup.deviceName || 'Unknown';
+
+  // Populate and show modal
+  const modal = document.getElementById('renameModal');
+  const input = document.getElementById('renameInput');
+  const posInput = document.getElementById('renamePosition');
+
+  if (modal && input && posInput) {
+    input.value = currentName;
+    posInput.value = position;
+    modal.classList.remove('hidden');
+    input.focus();
+  }
+}
+
+// Initialize modal listeners
+document.addEventListener('DOMContentLoaded', () => {
+  const modal = document.getElementById('renameModal');
+  const saveBtn = document.getElementById('saveRenameBtn');
+  const cancelBtn = document.getElementById('cancelRenameBtn');
+  const input = document.getElementById('renameInput');
+  const posInput = document.getElementById('renamePosition');
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      const newName = input.value.trim();
+      const position = parseInt(posInput.value);
+
+      if (newName) {
+        const cup = window.multiCupBLE.cups[position];
+        if (cup) {
+          window.multiCupBLE.updateFriendlyName(position, newName);
+          cup.deviceName = newName;
+
+          // Update UI
+          window.ui.updateMultiCupConnectionStatus(position, true);
+          showToast(`Device renamed to "${newName}"`, 'success');
+        }
+      }
+      modal.classList.add('hidden');
+    });
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      modal.classList.add('hidden');
+    });
+  }
+
+  // Close on click outside
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.add('hidden');
+      }
+    });
+  }
+});
+
+/**
+ * Forget a device at the specified position
+ */
+function forgetDevice(position) {
+  const cup = window.multiCupBLE.cups[position];
+  if (!cup || !cup.deviceId) {
+    showToast('No device to forget at this position', 'warning');
+    return;
+  }
+
+  const deviceName = cup.deviceName || 'this device';
+  if (!confirm(`Are you sure you want to forget "${deviceName}"?\n\nYou will need to pair it again next time.`)) {
+    return;
+  }
+
+  // Clear the device mapping
+  window.multiCupBLE.clearDeviceMapping(position);
+
+  // Disconnect if still connected
+  if (cup.connected && cup.manager) {
+    cup.manager.disconnect();
+  }
+
+  // Reset cup state
+  cup.manager = null;
+  cup.connected = false;
+  cup.deviceId = null;
+  cup.deviceName = null;
+  cup.macAddress = null;
+  cup.deviceIdentifier = null;
+
+  // Update UI
+  window.ui.updateMultiCupConnectionStatus(position, false);
+  showToast(`Device "${deviceName}" forgotten`, 'success');
+}
+
+
 // Make functions globally accessible
 window.processUploadedImage = processUploadedImage;
 window.applyProcessedImageToEditor = applyProcessedImageToEditor;
@@ -1486,6 +1627,9 @@ window.skipConnection = skipConnection;
 window.playMultiCupAnimation = playMultiCupAnimation;
 window.stopMultiCupAnimation = stopMultiCupAnimation;
 window.syncMultiCupAnimation = syncMultiCupAnimation;
+window.renameDevice = renameDevice;
+window.forgetDevice = forgetDevice;
+
 
 // Initialize panels when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {

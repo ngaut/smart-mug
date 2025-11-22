@@ -30,6 +30,60 @@ class MultiCupBLEManager {
     this.monitoringEnabled = false;
     this.MONITOR_INTERVAL_MS = 30000; // Check every 30 seconds
     this.MAX_RECONNECT_ATTEMPTS = 3;
+
+    // Device persistence
+    this.STORAGE_KEY = 'smartmug_device_mappings';
+    this.loadDeviceMappings();
+  }
+
+  /**
+   * Save device mapping to localStorage
+   */
+  saveDeviceMapping(position, deviceId, deviceName) {
+    const mappings = this.loadDeviceMappings();
+    mappings[position] = {
+      deviceId,
+      deviceName,
+      friendlyName: deviceName, // Can be customized later
+      savedAt: Date.now()
+    };
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(mappings));
+    console.log(`Saved device mapping for position ${position}`);
+  }
+
+  /**
+   * Load device mappings from localStorage
+   */
+  loadDeviceMappings() {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch (error) {
+      console.error("Failed to load device mappings:", error);
+      return {};
+    }
+  }
+
+  /**
+   * Clear device mapping for a position
+   */
+  clearDeviceMapping(position) {
+    const mappings = this.loadDeviceMappings();
+    delete mappings[position];
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(mappings));
+    console.log(`Cleared device mapping for position ${position}`);
+  }
+
+  /**
+   * Update friendly name for a device
+   */
+  updateFriendlyName(position, friendlyName) {
+    const mappings = this.loadDeviceMappings();
+    if (mappings[position]) {
+      mappings[position].friendlyName = friendlyName;
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(mappings));
+      console.log(`Updated friendly name for position ${position}: ${friendlyName}`);
+    }
   }
 
   /**
@@ -57,6 +111,74 @@ class MultiCupBLEManager {
     }
     return false;
   }
+
+  /**
+   * Auto-reconnect to previously paired devices
+   */
+  async autoReconnectAll() {
+    console.log("🔄 Attempting auto-reconnect...");
+
+    const mappings = this.loadDeviceMappings();
+    const previousDevices = await BLEManager.getPreviouslyPairedDevices();
+
+    if (previousDevices.length === 0) {
+      console.log("No previously paired devices found");
+      return;
+    }
+
+    // Match previous devices with saved mappings
+    for (const device of previousDevices) {
+      for (const [positionStr, mapping] of Object.entries(mappings)) {
+        if (mapping.deviceId === device.id) {
+          const position = parseInt(positionStr); // Convert string to number
+          console.log(`Auto-reconnecting ${mapping.friendlyName || device.name} to position ${position}...`);
+
+          try {
+            // Create a new BLE manager with the existing device
+            const manager = new BLEManager();
+            manager.device = device;
+
+            // Connect
+            await manager.connect();
+            await manager.verifyDeviceName();
+            const service = await manager.server.getPrimaryService(SERVICE_UUID);
+            manager.characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+            // Store in cups
+            this.cups[position].manager = manager;
+            this.cups[position].connected = true;
+            this.cups[position].deviceId = device.id;
+            this.cups[position].deviceName = mapping.friendlyName || device.name;
+            this.cups[position].reconnectAttempts = 0;
+            this.cups[position].autoReconnect = true;
+
+            // Set up disconnection handler
+            if (manager.device) {
+              manager.device.addEventListener('gattserverdisconnected', () => {
+                this.handleCupDisconnection(position);
+              });
+            }
+
+            console.log(`✅ Auto-reconnected ${mapping.friendlyName || device.name} to Cup ${position}`);
+
+            // Update UI
+            if (window.ui) {
+              window.ui.updateMultiCupConnectionStatus(position, true);
+            }
+          } catch (error) {
+            console.error(`Failed to auto-reconnect device to position ${position}:`, error);
+          }
+
+          // Break after matching this device to avoid duplicate connections
+          break;
+        }
+      }
+    }
+
+    // Start connection monitoring
+    this.startConnectionMonitoring();
+  }
+
 
   /**
    * Connect to a specific cup at position
@@ -96,8 +218,36 @@ class MultiCupBLEManager {
       this.cups[position].connected = true;
       this.cups[position].deviceId = newDeviceId;
       this.cups[position].deviceName = manager.device.name;
+
+      // Store detected MAC if available
+      if (manager.macAddress) {
+        this.cups[position].macAddress = manager.macAddress;
+      } else {
+        // Try to read other identifiers (Serial, System ID)
+        let identifier = await manager.readDeviceIdentifiers();
+
+        // If still no identifier, do a deep scan of ALL characteristics
+        if (!identifier) {
+          identifier = await manager.scanAllCharacteristics();
+        }
+
+        if (identifier) {
+          if (identifier.type === 'MAC Address') {
+            this.cups[position].macAddress = identifier.value;
+          } else {
+            this.cups[position].deviceIdentifier = identifier;
+          }
+        }
+      }
+
+
+
       this.cups[position].reconnectAttempts = 0;
       this.cups[position].autoReconnect = true; // Enable auto-reconnect for this cup
+
+      // Save device mapping for auto-reconnect
+      this.saveDeviceMapping(position, newDeviceId, manager.device.name);
+
 
       // Set up disconnection handler
       if (manager.device) {
@@ -109,20 +259,8 @@ class MultiCupBLEManager {
       // Start connection monitoring if not already running
       this.startConnectionMonitoring();
 
-      // Convert device ID to hex for display
-      let deviceIdHex = newDeviceId;
-      try {
-        const binaryString = atob(newDeviceId);
-        const hexArray = [];
-        for (let i = 0; i < binaryString.length; i++) {
-          hexArray.push(binaryString.charCodeAt(i).toString(16).padStart(2, '0'));
-        }
-        deviceIdHex = hexArray.join(':').toUpperCase();
-      } catch (e) {
-        deviceIdHex = newDeviceId;
-      }
-
-      console.log(`✅ Cup ${position} connected successfully: ${manager.device.name} (${deviceIdHex})`);
+      // Log success with Base64 ID to match UI
+      console.log(`✅ Cup ${position} connected successfully: ${manager.device.name} (${newDeviceId})`);
       return true;
     } catch (error) {
       console.error(`Failed to connect cup ${position}:`, error);

@@ -54,6 +54,23 @@ class BLEManager {
     }
   }
 
+  static async getPreviouslyPairedDevices() {
+    try {
+      if (!navigator.bluetooth?.getDevices) {
+        console.warn("getDevices() not supported in this browser");
+        return [];
+      }
+
+      const devices = await navigator.bluetooth.getDevices();
+      console.log(`Found ${devices.length} previously paired device(s)`);
+      return devices;
+    } catch (error) {
+      console.error("Failed to get previously paired devices:", error);
+      return [];
+    }
+  }
+
+
   async connect() {
     if (!this.device) {
       throw new Error("No device selected. Please request a device first.");
@@ -61,6 +78,7 @@ class BLEManager {
 
     try {
       console.log("Connecting to device...");
+
       // Connect to the GATT server
       this.server = await this.device.gatt.connect();
       console.log("Connected to GATT server");
@@ -154,7 +172,7 @@ class BLEManager {
     let command = new ArrayBuffer(commandData.length);
     let view = new DataView(command);
     for (let i in commandData) {
-        view.setUint8(i, commandData[i]);
+      view.setUint8(i, commandData[i]);
     }
 
     console.log('execute command: ', commandData);
@@ -184,11 +202,11 @@ class BLEManager {
     let arr = new Uint8Array(value.buffer);
     console.log('response: ', arr);
     if ((arr.length >= 3) && (arr[0] == 0xff)
-        && (arr[arr.length - 2] == 0x0d) && (arr[arr.length - 1] == 0x0A)) {
-        let part = arr.slice(2, arr.length - 2);
-        return part;
+      && (arr[arr.length - 2] == 0x0d) && (arr[arr.length - 1] == 0x0A)) {
+      let part = arr.slice(2, arr.length - 2);
+      return part;
     } else {
-        return arr;
+      return arr;
     }
   }
 
@@ -253,9 +271,9 @@ class BLEManager {
 
     let command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x17, 0x01];
     for (let i in message) {
-        let cp = message.codePointAt(i);
-        command.push(cp >> 8);
-        command.push(cp & 0xff);
+      let cp = message.codePointAt(i);
+      command.push(cp >> 8);
+      command.push(cp & 0xff);
     }
 
     command[2] = command.length;
@@ -369,51 +387,36 @@ class BLEManager {
   }
 
   async verifyDeviceName() {
-    try {
-      console.log("Verifying device name...");
+    if (!this.server) {
+      throw new Error("Not connected to device");
+    }
 
-      // Get Generic Access service
+    try {
       const genericAccessService = await this.server.getPrimaryService(
         "generic_access"
       );
-
-      // Get Device Name characteristic
       const deviceNameCharacteristic =
         await genericAccessService.getCharacteristic("gap.device_name");
-
-      // Read the device name
       const deviceNameValue = await deviceNameCharacteristic.readValue();
 
-      // Convert DataView to string
       const decoder = new TextDecoder("utf-8");
       const deviceName = decoder.decode(deviceNameValue).trim();
 
-      console.log(`Device name: "${deviceName}"`);
-
-      // Verify the device name
       if (deviceName !== "SGUAI-C3") {
-        // Disconnect and clean up before throwing error
         this.disconnect();
         throw new Error(
           `Invalid device name: "${deviceName}". Expected: "SGUAI-C3". Device disconnected.`
         );
       }
-
-      console.log("Device name verified successfully");
+      // If we reach here, the device name was verified successfully
       return true;
     } catch (error) {
       // If the error is about device name, re-throw it
       if (error.message.includes("Invalid device name")) {
         throw error;
       }
-
-      // If we can't read the device name, warn but continue
-      console.warn(
-        `Could not verify device name via Generic Access service: ${error.message}`
-      );
-      console.warn(
-        "Proceeding with connection - please ensure this is an SGUAI-C3 device"
-      );
+      // Generic Access service not available - that's OK
+      // We'll rely on the user selecting the correct device
       return true;
     }
   }
@@ -458,6 +461,123 @@ class BLEManager {
     } catch (error) {
       throw new Error(`Failed to read firmware version: ${error.message}`);
     }
+  }
+
+  async detectMacFromAdvertisement() {
+    if (!this.device) return null;
+
+    if (!this.device.watchAdvertisements) {
+      console.warn("Web Bluetooth watchAdvertisements() API is not available in this browser.");
+      return null;
+    }
+
+    console.log("Scanning for MAC address in advertisements...");
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
+    return new Promise((resolve) => {
+      const handleAd = (event) => {
+        if (event.manufacturerData) {
+          event.manufacturerData.forEach((value, key) => {
+            // Check if value is 6 bytes (MAC address length)
+            if (value.byteLength === 6) {
+              const arr = new Uint8Array(value.buffer);
+              const mac = Array.from(arr)
+                .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+                .join(':');
+              console.log(`Found potential MAC in Manufacturer Data (Key: ${key}):`, mac);
+              abortController.abort();
+              resolve(mac);
+            }
+          });
+        }
+      };
+
+      this.device.addEventListener('advertisementreceived', handleAd, { signal });
+
+      this.device.watchAdvertisements()
+        .catch(error => {
+          console.warn("watchAdvertisements error:", error);
+          resolve(null);
+        });
+
+      // Timeout after 2 seconds
+      setTimeout(() => {
+        abortController.abort();
+        resolve(null);
+      }, 2000);
+    });
+  }
+
+
+  async readDeviceIdentifiers() {
+    if (!this.server) return null;
+
+    try {
+      const service = await this.server.getPrimaryService("device_information");
+
+      // Try Serial Number (0x2A25)
+      try {
+        const char = await service.getCharacteristic("00002A25-0000-1000-8000-00805F9B34FB");
+        const value = await char.readValue();
+        const decoder = new TextDecoder("utf-8");
+        const serial = decoder.decode(value);
+        console.log("Read Serial Number:", serial);
+        return { type: 'Serial Number', value: serial };
+      } catch (e) { /* Ignore */ }
+
+      // Try System ID (0x2A23)
+      try {
+        const char = await service.getCharacteristic("00002A23-0000-1000-8000-00805F9B34FB");
+        const value = await char.readValue();
+        const arr = new Uint8Array(value.buffer);
+        const hex = Array.from(arr).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+        console.log("Read System ID:", hex);
+        return { type: 'System ID', value: hex };
+      } catch (e) { /* Ignore */ }
+
+    } catch (e) {
+      // Device Information service not available - that's OK
+    }
+    return null;
+  }
+
+  async scanAllCharacteristics() {
+    if (!this.server) return null;
+
+    try {
+      const services = await this.server.getPrimaryServices();
+
+      for (const service of services) {
+        try {
+          const characteristics = await service.getCharacteristics();
+
+          for (const char of characteristics) {
+            try {
+              const value = await char.readValue();
+              const arr = new Uint8Array(value.buffer);
+
+              // Check if it's 6 bytes (MAC address length)
+              if (arr.length === 6) {
+                const mac = Array.from(arr)
+                  .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+                  .join(':');
+                console.log(`Found potential MAC address: ${mac}`);
+                return { type: 'MAC Address', value: mac };
+              }
+            } catch (e) {
+              // Can't read this characteristic
+            }
+          }
+        } catch (e) {
+          // Can't enumerate characteristics for this service
+        }
+      }
+    } catch (e) {
+      // Can't enumerate services
+    }
+
+    return null;
   }
 }
 
