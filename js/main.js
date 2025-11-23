@@ -32,6 +32,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Set up event listeners
   document.getElementById('connectButton').addEventListener('click', connectToDevice);
+  document.getElementById('skipButton').addEventListener('click', skipConnection);
+  document.getElementById('sidebarConnectBtn').addEventListener('click', () => {
+    if (isConnected) {
+      // If connected, disconnect
+      connectToDevice();
+    } else {
+      // If not connected, show the connection panel
+      showConnectionPanel();
+      // Also reset the auto-restore flag so we don't just jump back
+      localStorage.removeItem('smartmug_last_panel');
+    }
+  });
 
   // Set up function navigation
   document.getElementById('versionBtn').addEventListener('click', showVersionFunction);
@@ -108,6 +120,8 @@ async function connectToDevice() {
     connectButton.textContent = 'Disconnect';
     connectButton.disabled = false;
     updateDeviceStatus('Connected');
+    updateDeviceStatus('Connected');
+    updateSidebarConnectButton(true);
     hideConnectionPanel();
     showWelcomeMessage();
 
@@ -128,32 +142,48 @@ function handleDisconnection() {
     connectButton.disabled = false;
   }
   updateDeviceStatus('Disconnected', true);
+  updateSidebarConnectButton(false);
   showToast('Device disconnected. Please reconnect.', 'warning');
 }
 
 // Function panel handlers
 function showVersionFunction() {
-  if (!isConnected && !isDemoMode) return;
+  if (!isConnected && !isDemoMode) {
+    showToast('Please connect to a device first', 'warning');
+    return;
+  }
   showVersionPanel();
 }
 
 function showTemperatureFunction() {
-  if (!isConnected && !isDemoMode) return;
+  if (!isConnected && !isDemoMode) {
+    showToast('Please connect to a device first', 'warning');
+    return;
+  }
   showTemperaturePanel();
 }
 
 function showGreetingFunction() {
-  if (!isConnected && !isDemoMode) return;
+  if (!isConnected && !isDemoMode) {
+    showToast('Please connect to a device first', 'warning');
+    return;
+  }
   showGreetingPanel();
 }
 
 function showDynamicModeFunction() {
-  if (!isConnected && !isDemoMode) return;
+  if (!isConnected && !isDemoMode) {
+    showToast('Please connect to a device first', 'warning');
+    return;
+  }
   showDynamicModePanel();
 }
 
 function showImageEditorFunction() {
-  if (!isConnected && !isDemoMode) return;
+  if (!isConnected && !isDemoMode) {
+    showToast('Please connect to a device first', 'warning');
+    return;
+  }
   window.ui.showImageEditorPanel();
 }
 
@@ -309,6 +339,19 @@ async function sendImageData(imageData = null, options = {}) {
     if (!bleManager.isConnected()) {
       isConnected = false;
       handleDisconnection();
+    }
+  }
+}
+
+function updateSidebarConnectButton(connected) {
+  const btn = document.getElementById('sidebarConnectBtn');
+  if (btn) {
+    if (connected) {
+      btn.innerHTML = '<span>❌</span> Disconnect';
+      btn.className = 'w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded flex items-center justify-center gap-2';
+    } else {
+      btn.innerHTML = '<span>🔗</span> Connect Device';
+      btn.className = 'w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded flex items-center justify-center gap-2';
     }
   }
 }

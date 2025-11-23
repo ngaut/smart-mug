@@ -57,7 +57,11 @@ class BLEManager {
   static async getPreviouslyPairedDevices() {
     try {
       if (!navigator.bluetooth?.getDevices) {
-        console.warn("getDevices() not supported in this browser");
+        if (!window.isSecureContext) {
+          console.warn("Web Bluetooth requires a secure context (HTTPS or localhost). It is not supported on file:// protocol.");
+        } else {
+          console.warn("getDevices() not supported in this browser");
+        }
         return [];
       }
 
