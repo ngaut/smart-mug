@@ -165,7 +165,7 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 - **Command Format:** `[0xFF, 0x55, LEN, 0x00, FUNCTION, FEATURE, ...DATA]` — `LEN` = total written length, no terminator on writes
 - **Static Image:** 78 bytes (`LEN=0x4E`, 6-byte header + 72-byte bitmap)
 - **Animation Frame:** 80 bytes (`LEN=0x50`, 8-byte header `+ <idx><speed>` + 72-byte bitmap)
-- **Bitmap encoding:** column-major right-to-left, rows top-to-bottom, MSB-first
+- **Bitmap encoding:** row-major left-to-right, rows top-to-bottom, MSB-first (verified on SGUAI-C3 firmware 1.6 hardware; see PROTOCOL_SPEC.md §4.5 for the firmware-dependent caveat)
 
 ## Browser Requirements
 

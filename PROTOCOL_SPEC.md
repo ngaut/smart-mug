@@ -1,17 +1,23 @@
 # SGUAI-C3 Smart Cup BLE Protocol Specification
 
 ## Document Version
-Version 2.0 - Reverse-engineered from the official `net.sguai.app` Android APK
+Version 2.1 — Reverse-engineered from the official `net.sguai.app` Android APK
 (uni-app bundle: `assets/apps/__UNI__7FD700B/www/app-service.js` and
-`pages/water/children/app-sub-service.js`).
+`pages/water/children/app-sub-service.js`), with bitmap encoding corrected
+against SGUAI-C3 firmware 1.6 hardware testing.
 
-> **Corrections vs v1.0** — v1.0 was inferred from a partial sample and was
-> wrong on three points: (1) writes have **no `0x0D 0x0A` terminator**; only
-> responses carry a 2-byte trailer. (2) The static-image payload is **72 bytes
-> (LEN=0x4E)**, not 120 bytes. (3) Bitmap pixels are packed **column-major,
-> right-to-left, rows top-to-bottom, MSB-first**, not row-major LTR. The
-> `0x26` animation command and several other feature bytes (`0x0B`, `0x24`,
-> `0x27`) were not documented.
+> **Corrections vs v1.0** (the original implementation analysis):
+> 1. Writes have **no `0x0D 0x0A` terminator**; only responses carry a 2-byte
+>    trailer.
+> 2. The static-image payload is **72 bytes (LEN=0x4E)**, not 120.
+> 3. The `0x26` animation command (autonomous on-cup playback) and several
+>    other feature bytes (`0x0B`, `0x24`, `0x27`) were not documented.
+>
+> **Firmware-dependent bitmap encoding** — see §4.5 for details. The APK
+> ships a column-major RTL encoder; SGUAI-C3 firmware 1.6 hardware uses
+> **row-major LTR, MSB-first**, which is what this client implements.
+> The protocol path (frame structure, command bytes, timings) is the same
+> in both cases — only the bit ordering inside the 72-byte payload differs.
 
 ---
 
@@ -434,7 +440,7 @@ exhaustion it surfaces an error to the user. Successful writes are paced
 | Function | 1 B | — | `0x01` read, `0x02` write |
 | Feature | 1 B | — | See §3.2 |
 | Greeting text | 2 B/code unit | UTF-16 BE | Surrogate pairs for non-BMP |
-| Bitmap | 72 B | MSB-first per byte | Column-major RTL, rows TTB; see §4.5 |
+| Bitmap | 72 B | MSB-first per byte | **Row-major LTR, rows TTB** (verified on fw 1.6); the APK uses column-major RTL — see §4.5 for the firmware-dependent caveat |
 | Response trailer | 2 B | Fixed | `0x0D 0x0A` (responses only — writes have no trailer) |
 
 ---
@@ -519,8 +525,8 @@ Frame 1:  FF 55 50 00 02 26 01 82  <72 B bitmap>
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-10-28 | Initial specification based on implementation analysis |
-| 2.0 | 2026-04-24 | Reverse-engineered from `net.sguai.app` APK. Removed bogus 0x0D/0x0A terminators on writes, corrected static-image size to 72 B, set bitmap encoding to column-major RTL MSB-first (per APK), added `0x26` animation command, added `0x0B`/`0x27` feature bytes. |
-| 2.1 | 2026-04-25 | **Bitmap encoding correction (firmware-dependent).** Hardware testing on SGUAI-C3 firmware 1.6 revealed the APK's column-major RTL encoder is byte-incompatible with this firmware. Reverted bitmap encoder to row-major LTR MSB-first. The 0x26 animation protocol path itself is correct; only the encoding within each frame's 72-byte payload differs. APK encoder presumably targets newer firmware. |
+| 2.0 | 2026-04-24 | Reverse-engineered from `net.sguai.app` APK. Removed bogus 0x0D/0x0A terminators on writes, corrected static-image size to 72 B, added `0x26` animation command and `0x0B`/`0x27` feature bytes. Bitmap encoder was set to column-major RTL MSB-first to match the APK; this turned out to be wrong for fw 1.6 — see v2.1. |
+| 2.1 | 2026-04-25 | **Bitmap encoding corrected to row-major LTR (firmware-dependent).** Hardware testing on SGUAI-C3 firmware 1.6 showed the APK's column-major RTL encoder produces a scrambled display: a single pixel at `grid[0][0]` lit row 11 col 36 (= bit index 564 ÷ 48 / mod 48), proving the cup's framebuffer is row-major LTR. Reverted both Python and JS encoders to row-major LTR MSB-first. The 0x26 animation protocol path itself was correct; only the bit ordering inside each frame's 72-byte payload changed. The APK presumably targets newer firmware (≥ 2.x or C5 family). |
 
 ---
 
@@ -538,7 +544,7 @@ beautified APK bundle (`assets/apps/__UNI__7FD700B/www/`):
 | Static image builder (`0x25`) | `app-service.js` | 51592 |
 | Animation prologue builder (`0x26`) | `app-service.js` | 51624 |
 | Per-frame animation loop with retry | `app-sub-service.js` | 9678–9724 |
-| Bitmap encoder (column-major RTL) | `app-sub-service.js` | 10113–10135 |
+| APK's bitmap encoder (column-major RTL — *not* used here, see §4.5) | `app-sub-service.js` | 10113–10135 |
 | Greeting builder (page-level) | `app-sub-service.js` | 4083–4088 |
 
 ---

@@ -95,4 +95,4 @@ upload speeds are comparable:
 - **Device not found.** Power cycle the cup, close any Web Bluetooth tabs holding the connection, then `--rescan`.
 - **Permission denied on Linux.** Add your user to the `bluetooth` group, or `sudo setcap 'cap_net_raw,cap_net_admin+eip' $(which python3)`.
 - **macOS BLE permission prompt missed.** System Settings → Privacy & Security → Bluetooth → enable for Terminal/iTerm.
-- **Animation looks wrong on display.** The cup's bitmap is column-major right-to-left (see `PROTOCOL_SPEC.md` §4.5); pre-rendered bitmaps from external tools may need rotating.
+- **Animation looks scrambled on display.** This client encodes bitmaps row-major LTR for SGUAI-C3 firmware 1.6 (verified on hardware). The official APK uses column-major RTL — likely for newer firmware. If you have a newer cup and the display is scrambled, the encoder in `pack_bitmap` may need to switch to column-major RTL. See `PROTOCOL_SPEC.md` §4.5.
