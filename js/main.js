@@ -295,14 +295,14 @@ async function sendImageData(imageData = null, options = {}) {
     const { silent = false, label = 'Image' } = options;
 
     if (!silent) {
-      showToast('Sending image to device... This may take up to 30 seconds.', 'info');
+      showToast('Sending image to device...', 'info');
     }
 
     // Use provided imageData or get from editor
     const dataToSend = imageData || window.imageEditor.getGridData();
 
     if (isDemoMode) {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate transmission
+      await new Promise(resolve => setTimeout(resolve, 200));
     } else {
       await bleManager.setImageData(dataToSend);
     }
@@ -318,28 +318,11 @@ async function sendImageData(imageData = null, options = {}) {
     return { success: true, elapsed: parseFloat(elapsed) };
   } catch (error) {
     console.error('Failed to send image data:', error);
-
-    // Check if it's a timeout error but device might still have received it
-    if (error.message.includes('timeout')) {
-      const elapsed = 30; // Timeout occurred
-      updateImageStatus('Image sent (response timeout, but likely displayed on device)');
-      if (!options.silent) {
-        showToast('Image sent to device (no confirmation received)', 'warning');
-      }
-      return { success: true, elapsed, timeout: true };
-    } else {
-      updateImageStatus(`Error: ${error.message}`, true);
-      if (!options.silent) {
-        showToast(`Failed to send image: ${error.message}`, 'error');
-      }
-      return { success: false, error: error.message };
+    updateImageStatus(`Error: ${error.message}`, true);
+    if (!options.silent) {
+      showToast(`Failed to send image: ${error.message}`, 'error');
     }
-
-    // If disconnected, update UI
-    if (!bleManager.isConnected()) {
-      isConnected = false;
-      handleDisconnection();
-    }
+    return { success: false, error: error.message };
   }
 }
 
@@ -911,120 +894,88 @@ async function sendTemporalFrame(frameIndex) {
   }
 }
 
-// Device Animation State
+// Device animation state. With the 0x26 protocol, the cup plays
+// autonomously after a one-shot upload — `intervalId` here drives only the
+// local browser preview loop, not BLE traffic.
 let deviceAnimationState = {
   isRunning: false,
   currentFrame: 0,
   intervalId: null,
   startTime: null,
-  frameStartTime: null,
-  frameDelay: 50 // milliseconds between frames (adjustable)
+  frameDelay: 130 // ms per frame; sent as the cup's `speed` byte, default matches official app's speedValue
 };
 
 async function sendAnimationToDevice() {
-  if (!temporalAnimationState.frameData) {
+  if (!temporalAnimationState.frameData?.length) {
     showToast('No frame data available', 'warning');
     return;
   }
-
   if (!isConnected) {
     showToast('Device not connected', 'warning');
     return;
   }
-
   if (deviceAnimationState.isRunning) {
     showToast('Animation already running', 'warning');
     return;
   }
 
-  // CRITICAL: Clear any existing timeout/interval to prevent duplicates
+  // Clear any pending preview-loop timer so we don't double-schedule.
   if (deviceAnimationState.intervalId) {
     clearTimeout(deviceAnimationState.intervalId);
     deviceAnimationState.intervalId = null;
   }
 
-  // Show stop button, hide send button
   document.getElementById('sendAnimationBtn').classList.add('hidden');
   document.getElementById('stopAnimationBtn').classList.remove('hidden');
-
-  // Show progress display
   document.getElementById('deviceAnimationProgress').classList.remove('hidden');
 
   deviceAnimationState.isRunning = true;
   deviceAnimationState.currentFrame = 0;
   deviceAnimationState.startTime = Date.now();
-  deviceAnimationState.frameTimes = []; // Track individual frame times
 
-  console.log('🎬 Starting animation - measuring frame speeds...');
-  showToast('Starting animation on device... (this may take time)', 'info');
+  const totalFrames = temporalAnimationState.frameData.length;
+  const frames = temporalAnimationState.frameData.map(f => f.grid);
 
-  // Function to send next frame in sequence
-  const sendNextFrame = async () => {
-    if (!deviceAnimationState.isRunning) return;
+  // Speed byte: prefer the slider value (frameDelay) but clamp to 1..255.
+  // Matches the official app's `speedValue` byte in the 0x26 prologue/frame.
+  const speed = Math.max(1, Math.min(255, Math.round(deviceAnimationState.frameDelay)));
 
+  console.log(`🎬 Uploading ${totalFrames}-frame animation at speed=${speed}ms...`);
+  document.getElementById('deviceAnimationStatus').textContent =
+    `Uploading ${totalFrames} frames...`;
+
+  // Phase 1: one-shot upload via 0x26. Cup then plays autonomously.
+  if (!isDemoMode) {
     try {
-      const frameNum = deviceAnimationState.currentFrame + 1;
-      const frame = temporalAnimationState.frameData[deviceAnimationState.currentFrame];
-
-      // Update progress display
-      const totalElapsed = Math.floor((Date.now() - deviceAnimationState.startTime) / 1000);
-      document.getElementById('deviceAnimationStatus').textContent =
-        `Sending Frame ${frameNum}/${temporalAnimationState.frameData.length} (Total elapsed: ${totalElapsed}s)`;
-
-      // Send frame using unified sendImageData function
-      const result = await sendImageData(frame.grid, {
-        silent: true,
-        label: `Frame ${frameNum}/${temporalAnimationState.frameData.length}`
-      });
-
-      if (!result || !result.success) {
-        throw new Error(result?.error || 'Failed to send frame');
-      }
-
-      // Record timing
-      deviceAnimationState.frameTimes.push(result.elapsed);
-      console.log(`✅ Frame ${frameNum}/${temporalAnimationState.frameData.length} sent in ${result.elapsed.toFixed(1)}s`);
-
-      // Move to next frame
-      deviceAnimationState.currentFrame =
-        (deviceAnimationState.currentFrame + 1) % temporalAnimationState.frameData.length;
-
-      // If completed full cycle, show statistics
-      if (deviceAnimationState.currentFrame === 0 && deviceAnimationState.frameTimes.length === temporalAnimationState.frameData.length) {
-        const totalTime = deviceAnimationState.frameTimes.reduce((a, b) => a + b, 0);
-        const avgTime = totalTime / deviceAnimationState.frameTimes.length;
-        const minTime = Math.min(...deviceAnimationState.frameTimes);
-        const maxTime = Math.max(...deviceAnimationState.frameTimes);
-        console.log(`\n📊 ANIMATION CYCLE COMPLETE:`);
-        console.log(`   Total time: ${totalTime.toFixed(1)}s`);
-        console.log(`   Average per frame: ${avgTime.toFixed(1)}s`);
-        console.log(`   Fastest frame: ${minTime.toFixed(1)}s`);
-        console.log(`   Slowest frame: ${maxTime.toFixed(1)}s`);
-        console.log(`   Frame rate: ${(temporalAnimationState.frameData.length / totalTime).toFixed(3)} FPS\n`);
-        // Reset for next cycle
-        deviceAnimationState.frameTimes = [];
-      }
-
-      // Schedule next frame
-      if (deviceAnimationState.isRunning) {
-        // Use user-adjustable delay
-        const displayDelay = deviceAnimationState.frameDelay;
-        console.log(`Frame ${deviceAnimationState.currentFrame} displayed, sending next frame in ${displayDelay}ms...`);
-        document.getElementById('deviceAnimationStatus').textContent =
-          `Frame ${deviceAnimationState.currentFrame}/${temporalAnimationState.frameData.length} displayed (${displayDelay}ms delay)`;
-        deviceAnimationState.intervalId = setTimeout(sendNextFrame, displayDelay);
-      }
+      const t0 = Date.now();
+      await bleManager.setAnimation(frames, speed);
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+      console.log(`✅ Animation uploaded in ${elapsed}s (cup playing autonomously)`);
+      showToast(`Animation uploaded in ${elapsed}s — cup playing autonomously`, 'success');
     } catch (error) {
-      console.error('Animation send error:', error);
-      showToast(`Animation error: ${error.message}`, 'error');
+      console.error('Animation upload failed:', error);
+      showToast(`Animation upload failed: ${error.message}`, 'error');
       stopAnimationToDevice();
+      return;
     }
+  } else {
+    await new Promise(r => setTimeout(r, 200));
+    showToast('Demo mode: simulating cup playback', 'info');
+  }
+
+  // Phase 2: local preview loop, independent of cup playback. Floor at
+  // 50 ms — the user can't perceive faster, and the cup speed byte sent
+  // above is unchanged.
+  const previewIntervalMs = Math.max(50, speed);
+  const previewLoop = () => {
+    if (!deviceAnimationState.isRunning) return;
+    const f = deviceAnimationState.currentFrame;
+    document.getElementById('deviceAnimationStatus').textContent =
+      `Cup playing autonomously — preview frame ${f + 1}/${totalFrames}`;
+    deviceAnimationState.currentFrame = (f + 1) % totalFrames;
+    deviceAnimationState.intervalId = setTimeout(previewLoop, previewIntervalMs);
   };
-
-  // Start the animation loop
-  sendNextFrame();
-
-  showToast('Animation loop started! Cycling frames on device...', 'success');
+  previewLoop();
 }
 
 function stopAnimationToDevice() {
@@ -1400,16 +1351,14 @@ async function syncMultiCupAnimation() {
     };
     const selectedMode = modeMap[modeSelect ? modeSelect.value : 'static'] || 0x00;
 
-    // Send
-    // Send
     if (isDemoMode) {
-      await new Promise(r => setTimeout(r, 500)); // Simulate sync
+      await new Promise(r => setTimeout(r, 500));
     } else {
       await window.multiCupBLE.sendToAllWithMode(chunksToSend, selectedMode);
     }
 
-    // Reset preview to frame 0 if animated
-    if (multiCupProcessedData && multiCupProcessedData.frames) {
+    // Reset preview to frame 0 if the source has frames at all.
+    if (multiCupProcessedData?.frames?.length) {
       updateMultiCupPreviews(0);
     }
 
@@ -1485,7 +1434,7 @@ async function sendToAllCups() {
       statusDiv.classList.remove('hidden');
     }
 
-    showToast(`Sending to ${connectedCount} cups in parallel... This may take 15-30 seconds.`, 'info');
+    showToast(`Sending to ${connectedCount} cups in parallel...`, 'info');
 
     // Send to all connected cups in parallel
     let result;

@@ -283,12 +283,12 @@ function showImageEditorPanel() {
             </div>
           </div>
 
-          <!-- Warning Banner -->
-          <div class="mb-3 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
-            <div class="font-semibold text-yellow-800 mb-1">⚠️ Device Speed Limitation</div>
-            <div class="text-yellow-700">
-              Each frame takes 15-30s to transfer via BLE. Device animation will be VERY slow (~1 frame per 20s).
-              <strong>Browser preview shows ideal result.</strong> Consider sending your best single frame instead.
+          <!-- Info Banner -->
+          <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+            <div class="font-semibold text-blue-800 mb-1">ℹ️ Animation playback</div>
+            <div class="text-blue-700">
+              Frames are uploaded to the cup in one batch (~150 ms each), then the cup plays them
+              autonomously from internal storage. Browser preview cycles independently.
             </div>
           </div>
 
