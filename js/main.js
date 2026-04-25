@@ -1245,7 +1245,16 @@ let multiCupAnimationState = {
 };
 
 /**
- * Play Multi-Cup Animation (GIF + Motion)
+ * Play Multi-Cup Animation.
+ *
+ * Uploads the entire frame sequence to each cup once via the 0x26 command,
+ * then returns — the cups play autonomously from internal storage with no
+ * further BLE traffic. The local preview loop is independent of the cup's
+ * playback (since we have no playback-progress feedback) and keeps spinning
+ * until the user hits Stop.
+ *
+ * Speed is the cup's per-frame timer (1 byte sent in the prologue + each
+ * frame). Default 130 matches the official app's `speedValue: 130`.
  */
 async function playMultiCupAnimation() {
   if (!multiCupProcessedData || !multiCupProcessedData.frames) {
@@ -1258,14 +1267,8 @@ async function playMultiCupAnimation() {
     return;
   }
 
-  // Get selected motion mode
   const modeSelect = document.getElementById('multiCupMotionMode');
-  const modeMap = {
-    'static': 0x00,
-    'scrollRight': 0x01,
-    'scrollLeft': 0x02,
-    'flashing': 0x03
-  };
+  const modeMap = { 'static': 0x00, 'scrollRight': 0x01, 'scrollLeft': 0x02, 'flashing': 0x03 };
   const selectedModeStr = modeSelect ? modeSelect.value : 'static';
   const selectedMode = modeMap[selectedModeStr] || 0x00;
 
@@ -1278,68 +1281,68 @@ async function playMultiCupAnimation() {
   document.getElementById('stopMultiCupAnimationBtn').classList.remove('hidden');
   document.getElementById('multiCupAnimationStatus').classList.remove('hidden');
 
-  console.log(`🎬 Starting Multi-Cup Animation: ${multiCupProcessedData.frames.length} frames, Mode: ${selectedModeStr}`);
-  showToast('Starting animation... (Updates every few seconds)', 'info');
+  const totalFrames = multiCupProcessedData.frames.length;
+  console.log(`🎬 Starting Multi-Cup Animation: ${totalFrames} frames, Mode: ${selectedModeStr}`);
 
-  // Animation Loop Function
-  const animateLoop = async () => {
-    if (!multiCupAnimationState.isPlaying) return;
+  // Transpose: frames[f].chunks[cup] -> cupFrames[cup][f]
+  const cupFrames = [[], [], [], []];
+  for (const frame of multiCupProcessedData.frames) {
+    for (let cup = 0; cup < 4; cup++) {
+      cupFrames[cup].push(frame.chunks[cup]);
+    }
+  }
 
+  // Animation speed (1 byte sent in prologue + each frame). The official
+  // app's UI default is `speedValue: 130`. If the source is a GIF, prefer
+  // its average inter-frame delay (clamped to 1..255).
+  const delays = multiCupProcessedData.frames
+    .map(f => f.originalFrame?.delay)
+    .filter(d => typeof d === 'number' && d > 0);
+  const avgDelay = delays.length ? delays.reduce((a, b) => a + b, 0) / delays.length : 130;
+  const speed = Math.max(1, Math.min(255, Math.round(avgDelay)));
+
+  // Phase 1: upload to cups + set mode (single shot, ~1 s for short animations)
+  if (!isDemoMode) {
     try {
-      const frameIndex = multiCupAnimationState.currentFrame;
-      const frameData = multiCupProcessedData.frames[frameIndex];
-      const totalFrames = multiCupProcessedData.frames.length;
-
-      // Update Status
       const statusDiv = document.getElementById('multiCupAnimationStatus');
-      if (statusDiv) {
-        statusDiv.textContent = `Playing Frame ${frameIndex + 1}/${totalFrames} • Mode: ${selectedModeStr}`;
-      }
+      if (statusDiv) statusDiv.textContent = `Uploading ${totalFrames} frames...`;
 
-      console.log(`▶️ Sending Frame ${frameIndex + 1}/${totalFrames}...`);
+      await window.multiCupBLE.setAnimationAll(cupFrames, speed, { silent: false });
+      // Set mode after upload — for animations we generally want static mode
+      // (the cup handles frame timing itself; scroll/flash would compound).
+      await window.multiCupBLE.setDynamicModeAll(selectedMode);
 
-      // Update Previews
-      updateMultiCupPreviews(frameIndex);
-
-      // Send Frame AND Mode
-      // We use sendToAllWithMode to ensure the mode is re-applied after image upload
-      // (Image upload often resets device to static mode)
-      if (isDemoMode) {
-        await new Promise(r => setTimeout(r, 100)); // Simulate fast update
-      } else {
-        await window.multiCupBLE.sendToAllWithMode(frameData.chunks, selectedMode, { silent: true });
-      }
-
-      // Advance Frame
-      multiCupAnimationState.currentFrame = (frameIndex + 1) % totalFrames;
-
-      // Schedule Next Loop
-      if (multiCupAnimationState.isPlaying) {
-        // Calculate delay: At least 2s, or more if user wants slow updates
-        // For now, hardcoded to ~3s to allow for transmission + viewing time
-        const delay = 3000;
-        multiCupAnimationState.intervalId = setTimeout(animateLoop, delay);
-      }
-
+      showToast(`✅ Animation uploaded — cups playing autonomously`, 'success');
     } catch (error) {
       if (error.message === 'No cups connected') {
         console.warn('Animation running in preview mode (no cups connected)');
-        // Continue loop even if no cups
-        multiCupAnimationState.currentFrame = (multiCupAnimationState.currentFrame + 1) % multiCupProcessedData.frames.length;
-        if (multiCupAnimationState.isPlaying) {
-          const delay = 3000;
-          multiCupAnimationState.intervalId = setTimeout(animateLoop, delay);
-        }
+        showToast('Preview mode (no cups connected)', 'info');
       } else {
-        console.error('Animation loop error:', error);
-        showToast(`Animation stopped: ${error.message}`, 'error');
+        console.error('Animation upload failed:', error);
+        showToast(`Animation upload failed: ${error.message}`, 'error');
         stopMultiCupAnimation();
+        return;
       }
     }
-  };
+  } else {
+    showToast('Demo mode: simulating cup playback', 'info');
+  }
 
-  // Start the loop
-  animateLoop();
+  // Phase 2: local preview loop (independent of cup playback). Cycles at the
+  // same speed the cup does so the on-screen preview tracks roughly with
+  // what the cup is showing, though they may drift over time.
+  const previewLoop = () => {
+    if (!multiCupAnimationState.isPlaying) return;
+    const f = multiCupAnimationState.currentFrame;
+    updateMultiCupPreviews(f);
+    const statusDiv = document.getElementById('multiCupAnimationStatus');
+    if (statusDiv) {
+      statusDiv.textContent = `Cup playing autonomously — preview frame ${f + 1}/${totalFrames}`;
+    }
+    multiCupAnimationState.currentFrame = (f + 1) % totalFrames;
+    multiCupAnimationState.intervalId = setTimeout(previewLoop, speed);
+  };
+  previewLoop();
 }
 
 /**

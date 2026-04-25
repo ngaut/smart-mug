@@ -108,14 +108,16 @@ Upload animated GIFs and play them across all 4 cups with optional motion effect
 2. System automatically detects frames and shows animation controls
 3. Select a motion overlay mode (optional)
 4. Click "Play GIF on Cups"
-5. Watch the animated preview update in real-time
-6. Animation loops automatically every ~3 seconds per frame
+5. The frames are uploaded once via the `0x26` command (~150 ms per frame, so a 5-frame GIF lands in under a second)
+6. Each cup then plays its frame sequence autonomously from internal storage — no further BLE traffic during playback
+7. The on-screen preview cycles independently to roughly track what the cup is showing
 
 **Technical Details:**
-- Frame delay: ~3 seconds (allows time for BLE transmission)
-- Supports GIFs with any number of frames
+- Animation upload: ~150 ms per frame (was ~3 s on the legacy streaming path)
+- Cup-side playback: autonomous after upload, no BLE traffic needed
+- Speed byte derived from the GIF's average inter-frame delay, clamped to 1–255
+- Supports GIFs with up to 255 frames
 - Each frame is dithered and split across 4 cups
-- Preview updates synchronously with device updates
 - Graceful fallback when no cups connected (preview-only mode)
 
 ## Image Upload Feature
@@ -150,7 +152,7 @@ Upload animated GIFs and play them across all 4 cups with optional motion effect
 6. Optionally edit manually with drawing tools
 7. Click "Send to Cup" to transfer to device
 
-**Note:** Image sending takes 15-30 seconds per frame. Be patient and wait for confirmation.
+**Note:** With the corrected protocol (matching the official `net.sguai.app` Android app), static image upload completes in well under a second.
 
 ## BLE Protocol
 
@@ -173,11 +175,10 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 
 ## Known Limitations
 
-1. **Device Response Time:** Image commands take 15-30 seconds to process
-2. **Multi-Cup Animation Speed:** ~3 seconds per frame (BLE transmission limit)
-3. **No Generic Access Service:** Device doesn't expose standard Generic Access service (handled gracefully)
-4. **BLE Timeout:** Devices may auto-disconnect after inactivity (manual reconnect required)
-5. **Production Build:** Tailwind CDN should be replaced with npm installation for production
+1. **No Generic Access Service:** Device doesn't expose standard Generic Access service (handled gracefully)
+2. **BLE Timeout:** Devices may auto-disconnect after inactivity (manual reconnect required)
+3. **Animation playback drift:** With 4 cups playing autonomously after upload, the cups may drift slightly relative to each other over long animations (no clock sync between them)
+4. **Production Build:** Tailwind CDN should be replaced with npm installation for production
 
 ## Troubleshooting
 
@@ -185,11 +186,6 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 - Ensure device is powered on and in pairing mode
 - Check Web Bluetooth is enabled in browser
 - Try refreshing browser and reconnecting
-
-### Image Sending Timeout
-- Wait full 30 seconds before retrying
-- Check device display - image may appear despite timeout warning
-- Simpler images process faster
 
 ### Display Not Updating
 - Verify device is still connected

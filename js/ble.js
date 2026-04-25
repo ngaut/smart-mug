@@ -1,13 +1,85 @@
-// ble.js - BLE connection and communication stubs
+// ble.js - BLE communication for the SGUAI-C3 cup. Wire format and timings
+// match the official `net.sguai.app` Android app; see PROTOCOL_SPEC.md and
+// python/smart_mug.py for the cross-language reference implementation.
 
 // Service and characteristic UUIDs
-const SERVICE_UUID = "0000ff00-0000-1000-8000-00805f9b34fb"; // Custom service UUID
-const COMMAND_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"; // Command characteristic
-const RESPONSE_CHAR_UUID = "0000ff02-0000-1000-8000-00805f9b34fb"; // Response characteristic (notifications)
+const SERVICE_UUID = "0000ff00-0000-1000-8000-00805f9b34fb";
+const COMMAND_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb";
+const RESPONSE_CHAR_UUID = "0000ff02-0000-1000-8000-00805f9b34fb";
 
 // Image dimensions
 const IMAGE_WIDTH = 48;
 const IMAGE_HEIGHT = 12;
+
+// Timings copied from the official app:
+//   - rt(20) before every GET_BLE_WRITE             -> WRITE_THROTTLE_MS
+//   - setTimeout(..., 100) after the prologue       -> ANIM_PROLOGUE_DELAY_MS
+//   - setTimeout(..., 150) between successful frames-> ANIM_FRAME_DELAY_MS
+//   - setTimeout(..., 100) on per-frame retry       -> ANIM_RETRY_BACKOFF_MS
+//   - failNum >= 10 caps retries                    -> ANIM_MAX_RETRIES
+const WRITE_THROTTLE_MS = 20;
+const ANIM_PROLOGUE_DELAY_MS = 100;
+const ANIM_FRAME_DELAY_MS = 150;
+const ANIM_RETRY_BACKOFF_MS = 100;
+const ANIM_MAX_RETRIES = 10;
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Pack a 12x48 grid into 72 bytes using the official wire format:
+ * column-major, columns scanned right-to-left, rows top-to-bottom,
+ * bits packed MSB-first within each byte.
+ *
+ * Reference: app-sub-service.pretty.js:10113-10135. Verified byte-identical
+ * to the JS port across 500 random grids in python/smart_mug.py tests.
+ */
+function packBitmap(grid) {
+  if (grid.length !== IMAGE_HEIGHT || grid.some(r => r.length !== IMAGE_WIDTH)) {
+    throw new Error(
+      `grid must be ${IMAGE_HEIGHT}×${IMAGE_WIDTH}, got ${grid.length}×${grid[0]?.length || 0}`
+    );
+  }
+  const out = new Uint8Array(72);
+  let i = 0;
+  for (let col = IMAGE_WIDTH - 1; col >= 0; col--) {
+    for (let row = 0; row < IMAGE_HEIGHT; row++) {
+      if (grid[row][col]) out[i >> 3] |= 1 << (7 - (i & 7));
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
+ * Encode a string as UTF-16 big-endian bytes — 2 bytes per BMP code unit,
+ * 4 bytes per non-BMP character (surrogate pair). Matches the official's
+ * `charCodeAt` iteration exactly.
+ */
+function utf16beBytes(str) {
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    const cu = str.charCodeAt(i);  // 16-bit code unit (surrogate halves for non-BMP)
+    bytes.push((cu >> 8) & 0xFF, cu & 0xFF);
+  }
+  return bytes;
+}
+
+/**
+ * Promise-based async mutex. Acquire returns an `unlock()` function that
+ * must be called (in finally) to release. Pending acquirers form a chain
+ * so writes are serialized strictly in arrival order.
+ */
+class Mutex {
+  constructor() { this._chain = Promise.resolve(); }
+  async acquire() {
+    let unlock;
+    const next = new Promise(r => unlock = r);
+    const previous = this._chain;
+    this._chain = next;
+    await previous;
+    return unlock;
+  }
+}
 
 class BLEManager {
   constructor() {
@@ -18,8 +90,9 @@ class BLEManager {
     this.responseCharacteristic = null;
     this.pendingResponse = null;
     this.responseTimeout = null;
-    this.isSending = false; // Mutex lock to prevent concurrent sends
-    this.sendQueue = []; // Queue for pending sends
+    // Serialize all writes — concurrent callers (e.g. parallel multi-cup
+    // sends) cannot interleave GATT writes on the same characteristic.
+    this._mutex = new Mutex();
   }
 
   async requestDevice() {
@@ -167,33 +240,54 @@ class BLEManager {
     }
   }
 
-  // Execute a command and return the response
+  // Internal: write-with-response. With `throttle=true` (default) applies the
+  // 20 ms pre-guard that the official `GET_BLE_WRITE` action uses; per-frame
+  // animation writes pass `throttle=false`.
+  async _write(commandData, { throttle = true } = {}) {
+    if (!this.commandCharacteristic) throw new Error("Not connected to device");
+    if (throttle) await sleep(WRITE_THROTTLE_MS);
+    const buf = new Uint8Array(commandData.length);
+    for (let i = 0; i < commandData.length; i++) buf[i] = commandData[i] & 0xFF;
+    await this.commandCharacteristic.writeValue(buf);
+  }
+
+  // Animation per-frame write. Mirrors the official's recursive
+  // writeBLECharacteristicValue: up to ANIM_MAX_RETRIES, ANIM_RETRY_BACKOFF_MS
+  // between failures, no pre-guard.
+  async _writeFrameWithRetry(commandData) {
+    for (let attempt = 0; attempt < ANIM_MAX_RETRIES; attempt++) {
+      try {
+        await this._write(commandData, { throttle: false });
+        return;
+      } catch (err) {
+        if (attempt === ANIM_MAX_RETRIES - 1) throw err;
+        await sleep(ANIM_RETRY_BACKOFF_MS);
+      }
+    }
+  }
+
+  // Public: write a command and wait up to `timeout` ms for a notification.
+  // Used for commands the official's receive parser handles (mode echo,
+  // reads, etc.). Acquires the mutex.
   async executeCommand(commandData, timeout = 5000) {
-    if (!this.server) {
-      throw new Error("Not connected to device");
+    if (!this.server) throw new Error("Not connected to device");
+    const unlock = await this._mutex.acquire();
+    try {
+      return await this._executeLocked(commandData, timeout);
+    } finally {
+      unlock();
     }
+  }
 
-    let command = new ArrayBuffer(commandData.length);
-    let view = new DataView(command);
-    for (let i in commandData) {
-      view.setUint8(i, commandData[i]);
-    }
-
-    console.log('execute command: ', commandData);
-
-    let value = await new Promise((resolve, reject) => {
-      // Set up pending response
+  async _executeLocked(commandData, timeout) {
+    const value = await new Promise((resolve, reject) => {
       this.pendingResponse = { resolve, reject };
-
-      // Set timeout
       this.responseTimeout = setTimeout(() => {
         this.responseTimeout = null;
         this.pendingResponse = null;
         reject(new Error("Device response timeout"));
       }, timeout);
-
-      // Send command
-      this.sendCommandInternal(command).catch((error) => {
+      this._write(commandData).catch((error) => {
         if (this.responseTimeout) {
           clearTimeout(this.responseTimeout);
           this.responseTimeout = null;
@@ -203,34 +297,11 @@ class BLEManager {
       });
     });
 
-    let arr = new Uint8Array(value.buffer);
-    console.log('response: ', arr);
-    if ((arr.length >= 3) && (arr[0] == 0xff)
-      && (arr[arr.length - 2] == 0x0d) && (arr[arr.length - 1] == 0x0A)) {
-      let part = arr.slice(2, arr.length - 2);
-      return part;
-    } else {
-      return arr;
+    const arr = new Uint8Array(value.buffer);
+    if (arr.length >= 3 && arr[0] === 0xFF && arr[arr.length - 2] === 0x0D && arr[arr.length - 1] === 0x0A) {
+      return arr.slice(2, arr.length - 2);
     }
-  }
-
-  // Internal method to send command to the device
-  async sendCommandInternal(commandData) {
-    if (!this.server) {
-      throw new Error("Not connected to device");
-    }
-
-    if (!this.commandCharacteristic) {
-      throw new Error("Command characteristic not available");
-    }
-
-    try {
-      console.log("Sending command:", commandData);
-      await this.commandCharacteristic.writeValue(commandData);
-      return true;
-    } catch (error) {
-      throw new Error(`Failed to send command: ${error.message}`);
-    }
+    return arr;
   }
 
   // Read version information
@@ -250,143 +321,117 @@ class BLEManager {
     }
   }
 
-  // Read temperature
+  // Read temperature: FF 55 07 00 01 01 00. Response payload's last byte = °C.
   async readTemperature() {
-    if (!this.server) {
-      throw new Error("Not connected to device");
-    }
-
-    try {
-      // Create temperature request command (this would depend on your protocol)
-      const response = await this.executeCommand(["0xFF", "0x55", "0x07", "0x0", "0x1", "0x1", "0x0"]);
-      console.log("temperature: ", [...response]);
-      const temperature = response[response.length - 1];
-      return temperature;
-    } catch (error) {
-      throw new Error(`Failed to read temperature: ${error.message}`);
-    }
+    const response = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x01, 0x00]);
+    return response[response.length - 1];
   }
 
-  // Set greeting message
+  /**
+   * Set greeting text. Empty string clears the display.
+   *
+   * Matches the official page-level path (sub-service.pretty.js:4083-88):
+   * direct write — no 20 ms guard, no notification wait (the receive parser
+   * has no 0x17 handler). Encoding is UTF-16 big-endian, matching the
+   * official's `charCodeAt` iteration including surrogate pairs.
+   */
   async setGreetingMessage(message) {
-    if (!this.server) {
-      throw new Error("Not connected to device");
-    }
-
-    let command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x17, 0x01];
-    for (let i in message) {
-      let cp = message.codePointAt(i);
-      command.push(cp >> 8);
-      command.push(cp & 0xff);
-    }
-
+    if (!this.server) throw new Error("Not connected to device");
+    const text = message || "";
+    const subcmd = text ? 0x01 : 0x00;
+    const command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x17, subcmd, ...utf16beBytes(text)];
     command[2] = command.length;
-
+    const unlock = await this._mutex.acquire();
     try {
-      let rsp = await this.executeCommand(command);
-      console.log("setGreetingMessage: ", rsp);
+      await this._write(command, { throttle: false });
       return true;
-    } catch (error) {
-      throw new Error(`Failed to set greeting message: ${error.message}`);
-    }
-  }
-
-  // Set dynamic mode
-  async setDynamicMode(mode) {
-    if (!this.server) {
-      throw new Error("Not connected to device");
-    }
-
-    // Map mode strings to numeric values
-    const modeMap = {
-      static: 0,
-      scrollRight: 1,
-      scrollLeft: 2,
-      flashing: 3,
-    };
-
-    const modeValue = modeMap[mode];
-    if (modeValue === undefined) {
-      throw new Error(`Invalid mode: ${mode}`);
-    }
-
-    try {
-      let rsp = await this.executeCommand(["0xFF", "0x55", "0x7", "0x0", "0x2", "0x23", modeValue]);
-      console.log("setDynamicMode: ", rsp);
-      return true;
-    } catch (error) {
-      throw new Error(`Failed to set dynamic mode: ${error.message}`);
-    }
-  }
-
-  // Set image data
-  async setImageData(imageData) {
-    if (!this.server) {
-      throw new Error("Not connected to device");
-    }
-
-    // CRITICAL: Wait if another send is in progress
-    if (this.isSending) {
-      console.warn('BLE busy - waiting for previous send to complete...');
-      // Wait up to 35 seconds for current send to finish
-      for (let i = 0; i < 70; i++) {
-        if (!this.isSending) break;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      if (this.isSending) {
-        throw new Error('BLE busy timeout - previous send did not complete');
-      }
-    }
-
-    // Acquire lock
-    this.isSending = true;
-
-    try {
-      // Convert 2D array to bit-packed Uint8Array
-      // imageData is a 12x48 array where 0 = white, 1 = black
-      // Each bit represents 1 pixel, so 576 pixels = 72 bytes
-      // Within each byte: highest bit (bit 7) = leftmost pixel, lowest bit (bit 0) = rightmost pixel
-      const totalPixels = IMAGE_HEIGHT * IMAGE_WIDTH;
-      const totalBytes = Math.ceil(totalPixels / 8);
-      const flatData = new Uint8Array(120);
-
-      let bitIndex = 0;
-      for (let row = 0; row < IMAGE_HEIGHT; row++) {
-        for (let col = 0; col < IMAGE_WIDTH; col++) {
-          const byteIndex = Math.floor(bitIndex / 8);
-          const bitPosition = 7 - (bitIndex % 8); // Reverse: bit 7 = leftmost, bit 0 = rightmost
-
-          if (imageData[row][col] === 1) {
-            // Set the bit at the current position
-            flatData[byteIndex] |= (1 << bitPosition);
-          }
-
-          bitIndex++;
-        }
-      }
-
-      const command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x25, ...flatData];
-      command[2] = command.length; // Update length byte
-
-      // Image command takes longer to process - device needs time to render
-      try {
-        await this.executeCommand(command, 30000); // 30-second timeout (device is slow)
-        return true;
-      } catch (error) {
-        // If timeout, the command was sent - treat as success
-        if (error.message.includes('timeout')) {
-          console.warn('Image command sent but response took too long (>30s)');
-          console.warn('Image should still appear on device');
-          // Treat as success since command was sent
-          return true;
-        }
-        throw error;
-      }
-    } catch (error) {
-      throw new Error(`Failed to set image data: ${error.message}`);
     } finally {
-      // CRITICAL: Always release lock
-      this.isSending = false;
+      unlock();
+    }
+  }
+
+  // Set display motion: static / scrollRight / scrollLeft / flashing.
+  async setDynamicMode(mode) {
+    if (!this.server) throw new Error("Not connected to device");
+    const modeMap = { static: 0, scrollRight: 1, scrollLeft: 2, flashing: 3 };
+    const modeValue = modeMap[mode];
+    if (modeValue === undefined) throw new Error(`Invalid mode: ${mode}`);
+    const command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x23, modeValue];
+    const unlock = await this._mutex.acquire();
+    try {
+      try {
+        await this._executeLocked(command, 10000);
+      } catch (err) {
+        // Cup occasionally drops the echo notification; the write itself
+        // was ACKed at the BLE layer so the mode is set.
+        if (!String(err.message).includes("timeout")) throw err;
+      }
+      return true;
+    } finally {
+      unlock();
+    }
+  }
+
+  /**
+   * Upload a static image. Sends FF 55 4E 00 02 25 + 72-byte bitmap.
+   * Fire-and-forget — the receive parser has no 0x25 handler. Goes through
+   * the same GET_BLE_WRITE path as every other state-changing command, so
+   * we apply the 20 ms pre-guard.
+   */
+  async setImageData(imageData) {
+    if (!this.server) throw new Error("Not connected to device");
+    const payload = packBitmap(imageData);
+    const command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x25, ...payload];
+    command[2] = command.length;  // 0x4E (78)
+    const unlock = await this._mutex.acquire();
+    try {
+      await this._write(command);
+      return true;
+    } finally {
+      unlock();
+    }
+  }
+
+  /**
+   * Upload an animation. The cup stores the frames and plays them
+   * autonomously after upload completes — no BLE traffic during playback.
+   *
+   * Wire protocol (matches official app):
+   *   Prologue: FF 55 08 00 02 26 <count> <speed>
+   *   Frame N : FF 55 50 00 02 26 <idx>   <speed> <72-byte bitmap>
+   *
+   * Timing matches the official app: 20 ms pre-guard on the prologue,
+   * 100 ms post-prologue, 150 ms between successful frames, 10× retry
+   * with 100 ms backoff on per-frame failure.
+   *
+   * @param {Array<Array<Array<number>>>} frames  Array of 12×48 grids.
+   * @param {number} speed                         1 byte (default 130).
+   */
+  async setAnimation(frames, speed = 130) {
+    if (!this.server) throw new Error("Not connected to device");
+    if (!frames || frames.length === 0) throw new Error("At least one frame required");
+    if (frames.length > 255) throw new Error("Max 255 frames");
+    if (!Number.isInteger(speed) || speed < 0 || speed > 255) {
+      throw new Error("speed must be 0..255");
+    }
+
+    const unlock = await this._mutex.acquire();
+    try {
+      const n = frames.length;
+      // Prologue
+      await this._write([0xFF, 0x55, 0x08, 0x00, 0x02, 0x26, n, speed]);
+      await sleep(ANIM_PROLOGUE_DELAY_MS);
+
+      for (let idx = 0; idx < n; idx++) {
+        const payload = packBitmap(frames[idx]);
+        const cmd = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x26, idx, speed, ...payload];
+        cmd[2] = cmd.length;  // 0x50 (80)
+        await this._writeFrameWithRetry(cmd);
+        if (idx < n - 1) await sleep(ANIM_FRAME_DELAY_MS);
+      }
+      return true;
+    } finally {
+      unlock();
     }
   }
 
