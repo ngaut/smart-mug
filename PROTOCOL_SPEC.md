@@ -1,7 +1,17 @@
 # SGUAI-C3 Smart Cup BLE Protocol Specification
 
 ## Document Version
-Version 1.0 - Complete Protocol Specification
+Version 2.0 - Reverse-engineered from the official `net.sguai.app` Android APK
+(uni-app bundle: `assets/apps/__UNI__7FD700B/www/app-service.js` and
+`pages/water/children/app-sub-service.js`).
+
+> **Corrections vs v1.0** — v1.0 was inferred from a partial sample and was
+> wrong on three points: (1) writes have **no `0x0D 0x0A` terminator**; only
+> responses carry a 2-byte trailer. (2) The static-image payload is **72 bytes
+> (LEN=0x4E)**, not 120 bytes. (3) Bitmap pixels are packed **column-major,
+> right-to-left, rows top-to-bottom, MSB-first**, not row-major LTR. The
+> `0x26` animation command and several other feature bytes (`0x0B`, `0x24`,
+> `0x27`) were not documented.
 
 ---
 
@@ -32,14 +42,14 @@ Service UUID: 0000ff00-0000-1000-8000-00805f9b34fb
 
 ### 2.1 Command Frame Format
 
-All commands sent to the device follow this structure:
+All commands sent to the device follow this structure (no terminators):
 
 ```
-┌─────────┬─────────┬────────┬──────────┬──────────┬─────────┬──────────┬─────────────┬──────────┐
-│ Header1 │ Header2 │ Length │ Reserved │ Function │ Command │   Data   │ Terminator1 │ Term2    │
-│  (0xFF) │  (0x55) │ (byte) │  (0x00)  │  (byte)  │ (byte)  │ (N bytes)│   (0x0D)    │ (0x0A)   │
-└─────────┴─────────┴────────┴──────────┴──────────┴─────────┴──────────┴─────────────┴──────────┘
-    [0]       [1]       [2]       [3]        [4]       [5]     [6..N-3]     [N-2]        [N-1]
+┌─────────┬─────────┬────────┬──────────┬──────────┬─────────┬──────────┐
+│ Header1 │ Header2 │ Length │ Reserved │ Function │ Command │   Data   │
+│  (0xFF) │  (0x55) │ (byte) │  (0x00)  │  (byte)  │ (byte)  │ (N bytes)│
+└─────────┴─────────┴────────┴──────────┴──────────┴─────────┴──────────┘
+    [0]       [1]       [2]       [3]        [4]       [5]     [6..N-1]
 ```
 
 **Field Definitions:**
@@ -48,19 +58,17 @@ All commands sent to the device follow this structure:
 |-------|--------|------|-------|-------------|
 | Header 1 | 0 | 1 byte | `0xFF` | Fixed command start marker |
 | Header 2 | 1 | 1 byte | `0x55` | Fixed command start marker |
-| Length | 2 | 1 byte | Variable | **Total length of entire command including headers and terminators** |
-| Reserved | 3 | 1 byte | `0x00` | Reserved field (always 0x00) |
-| Function | 4 | 1 byte | Variable | Function category identifier |
-| Command | 5 | 1 byte | Variable | Specific command within function category |
-| Data | 6 to N-3 | Variable | Variable | Command payload (can be empty) |
-| Terminator 1 | N-2 | 1 byte | `0x0D` | Fixed command end marker (CR) |
-| Terminator 2 | N-1 | 1 byte | `0x0A` | Fixed command end marker (LF) |
+| Length | 2 | 1 byte | Variable | **Total length of the written buffer** (i.e. equals N) |
+| Reserved | 3 | 1 byte | `0x00` | Reserved (always `0x00`) |
+| Function | 4 | 1 byte | `0x01` / `0x02` | `0x01` = read/get, `0x02` = write/set |
+| Command | 5 | 1 byte | Variable | Feature byte (see §4) |
+| Data | 6 to N-1 | Variable | Variable | Command payload (can be empty) |
 
-**CRITICAL NOTE:** The Length field (byte[2]) contains the **total length of the entire command**, including:
-- Headers (0xFF, 0x55)
-- Length byte itself
-- All data bytes
-- Terminators (0x0D, 0x0A)
+**Key correction vs v1.0:** The `LEN` byte equals the byte count actually
+written to the GATT characteristic. The official client (`hexToBu` at
+`app-service.js:15096`) writes the array verbatim with no trailer, and every
+command builder in the APK stops at the last data byte. Verified across all
+read/write commands.
 
 ### 2.2 Response Frame Format
 
@@ -80,14 +88,32 @@ Responses from the device follow the same structure:
 
 ---
 
-## 3. Function Categories and Commands
+## 3. Function Codes and Feature Bytes
 
-### 3.1 Function Category Codes
+### 3.1 Function byte (offset 4)
 
 | Function | Code | Description |
 |----------|------|-------------|
-| Device Information | `0x01` | Query device status and information |
-| Display Control | `0x02` | Control display content and modes |
+| Read / Get | `0x01` | Query device state |
+| Write / Set | `0x02` | Configure device / send display data |
+
+The original v1.0 spec called these "Device Information" and "Display
+Control"; reverse-engineering shows they are simply read vs. write — the
+*feature byte* at offset 5 is what selects what to read or write.
+
+### 3.2 Known feature bytes (C3 / C5 family)
+
+| Feature | Read | Write | Purpose |
+|---------|------|-------|---------|
+| `0x01` | ✔ | — | Temperature (°C / °F per `0x0B` setting) |
+| `0x02` | ✔ | — | Battery percent |
+| `0x09` | ✔ | — | Firmware version (`X.Y`) |
+| `0x0B` | ✔ | ✔ | Temperature unit (0=°C, 1=°F) |
+| `0x17` | — | ✔ | Greeting text (UTF-16BE codepoints, sub-cmd `0x01`) |
+| `0x23` | ✔ | ✔ | Display motion mode (0=static, 1=scroll→, 2=scroll←, 3=flash) |
+| `0x25` | — | ✔ | **Static** bitmap upload (72-byte payload) |
+| `0x26` | — | ✔ | **Animation** upload (prologue + per-frame, see §4.6) |
+| `0x27` | ✔ | ✔ | Auto-screen-off duration (seconds) |
 
 ---
 
@@ -226,273 +252,182 @@ Set to "Scroll Left" mode:
 
 ---
 
-### 4.5 Set Image Data (Function: 0x02, Command: 0x25)
+### 4.5 Set Static Image (Function: 0x02, Command: 0x25)
 
-**Purpose:** Upload monochrome bitmap image to device display
+**Purpose:** Upload one monochrome bitmap as a static frame.
 
 **Command Frame:**
 ```
-Offset: 0    1    2    3    4    5    6 ... 125
-Bytes:  FF   55   LEN  00   02   25   [120 bytes of image data]
+Offset: 0    1    2    3    4    5    6 ... 77
+Bytes:  FF   55   4E   00   02   25   [72 bytes of bit-packed bitmap]
 ```
 
-**Field Breakdown:**
-- `0xFF 0x55`: Headers
-- `LEN`: Total length = 126 bytes (0x7E)
-- `0x00`: Reserved
-- `0x02`: Function = Display Control
-- `0x25`: Command = Set Image
-- Followed by 120 bytes of bit-packed image data
+- `LEN = 0x4E` (78), the actual GATT write length.
+- Display: **48 × 12 pixels = 576 bits = 72 bytes**.
+- The C5 family uses a 12 × 36 layout that packs to 60 bytes (`LEN = 0x42`).
+  The official builder selects 0x42 only when the supplied hex string is 120
+  characters (60 bytes); otherwise it sends 0x4E (72 bytes) — the C3 case.
 
-**Image Format Specification:**
+**Bit Packing — column-major, RTL, rows TTB, MSB-first:**
 
-**Display Hardware:**
-- Resolution: **48 pixels (width) × 12 pixels (height)**
-- Total pixels: 576
-- Color depth: 1-bit monochrome (black/white)
-- Packed size: 72 bytes (576 bits / 8)
-
-**CRITICAL: Actual Implementation Uses 120 Bytes**
-```javascript
-const flatData = new Uint8Array(120);  // Not 72!
-```
-This suggests the device expects 120 bytes even though only 72 bytes (576 bits) are needed for the visible 48×12 display. The extra 48 bytes may be:
-- Buffer padding
-- Extended display memory
-- Reserved space for future use
-- Internal device requirement
-
-**Bit Packing Format:**
-
-1. **Pixel Order:** Row-major order (scan left-to-right, top-to-bottom)
-   ```
-   Row 0: Pixel[0,0] to Pixel[0,47]
-   Row 1: Pixel[1,0] to Pixel[1,47]
-   ...
-   Row 11: Pixel[11,0] to Pixel[11,47]
-   ```
-
-2. **Bit Layout Within Each Byte:**
-   - **MSB-first** (big-endian bit order)
-   - Bit 7 (leftmost) = first pixel
-   - Bit 0 (rightmost) = eighth pixel
-
-   ```
-   Byte N:
-   ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
-   │ Bit7│ Bit6│ Bit5│ Bit4│ Bit3│ Bit2│ Bit1│ Bit0│
-   │Pix N│Pix+1│Pix+2│Pix+3│Pix+4│Pix+5│Pix+6│Pix+7│
-   └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
-   ```
-
-3. **Pixel Values:**
-   - `0` = White (LED off)
-   - `1` = Black (LED on)
-
-**Encoding Algorithm:**
-```javascript
-const IMAGE_WIDTH = 48;
-const IMAGE_HEIGHT = 12;
-const flatData = new Uint8Array(120);  // Device expects 120 bytes
-
-let bitIndex = 0;
-for (let row = 0; row < IMAGE_HEIGHT; row++) {
-    for (let col = 0; col < IMAGE_WIDTH; col++) {
-        const byteIndex = Math.floor(bitIndex / 8);
-        const bitPosition = 7 - (bitIndex % 8);  // MSB first
-
-        if (imageData[row][col] === 1) {  // If pixel is black
-            flatData[byteIndex] |= (1 << bitPosition);
-        }
-
-        bitIndex++;
-    }
-}
-// Bytes 0-71 contain the 576 pixel bits
-// Bytes 72-119 remain 0x00 (padding)
+```js
+// app-sub-service.pretty.js:10113-10135 (paraphrased)
+for (col = WIDTH - 1; col >= 0; col--)        // columns RIGHT-TO-LEFT
+    for (row = 0; row < HEIGHT; row++)        // rows TOP-TO-BOTTOM
+        accumulate_bit(grid[row][col]);       // 1 = LED on
+        if (8 bits accumulated) emit_byte_MSB_first();
 ```
 
-**Byte Mapping Example:**
-```
-Byte 0:  Pixels [0,0] to [0,7]   (Row 0, columns 0-7)
-Byte 1:  Pixels [0,8] to [0,15]  (Row 0, columns 8-15)
-Byte 2:  Pixels [0,16] to [0,23] (Row 0, columns 16-23)
-...
-Byte 5:  Pixels [0,40] to [0,47] (Row 0, columns 40-47)
-Byte 6:  Pixels [1,0] to [1,7]   (Row 1, columns 0-7)
-...
-Byte 71: Pixels [11,40] to [11,47] (Row 11, columns 40-47)
-Bytes 72-119: Padding (all 0x00)
+So for the 48×12 C3 display:
+- byte 0 bit 7 = pixel `(row=0, col=47)`
+- byte 0 bit 0 = pixel `(row=7, col=47)`
+- byte 1 bits 7..4 = pixels `(row=8..11, col=47)`
+- byte 1 bits 3..0 = pixels `(row=0..3, col=46)`
+- … bytes straddle column boundaries because 12 rows ≠ multiple of 8.
+
+**Pixel values:** `0` = LED off, `1` = LED on.
+
+**Encoding (Python reference, matches the official app):**
+```python
+def pack_bitmap(grid):  # grid is grid[row][col], 12 rows × 48 cols
+    bits = []
+    for col in range(47, -1, -1):
+        for row in range(12):
+            bits.append(1 if grid[row][col] else 0)
+    out = bytearray(72)
+    for i, b in enumerate(bits):
+        if b: out[i // 8] |= 1 << (7 - (i % 8))
+    return bytes(out)
 ```
 
-**Example - 3×3 Black Square at Top-Left:**
-```
-Image Grid (3×3 black pixels):
-■ ■ ■ □ □ □ ... (48 pixels wide)
-■ ■ ■ □ □ □ ...
-■ ■ ■ □ □ □ ...
-□ □ □ □ □ □ ... (12 pixels tall)
-...
+**Response:** Cup ACKs at the BLE-write level; no application response.
 
-Byte 0: 11100000 = 0xE0  (Row 0, pixels 0-7)
-Byte 1: 00000000 = 0x00  (Row 0, pixels 8-15)
-...
-Byte 6: 11100000 = 0xE0  (Row 1, pixels 0-7)
-...
-Byte 12: 11100000 = 0xE0 (Row 2, pixels 0-7)
-...
-All other bytes: 0x00
-```
+---
 
-**Complete Command Example:**
-```
-Command: [0xFF, 0x55, 0x7E, 0x00, 0x02, 0x25, <120 image bytes>]
-Total length: 126 bytes (0x7E)
-```
+### 4.6 Set Animation (Function: 0x02, Command: 0x26)
 
-**Response:**
-- Returns acknowledgment (format not specified in implementation)
+**Purpose:** Store an animation in the cup's flash so it plays autonomously
+afterwards — no further BLE traffic during playback. This is how the official
+app achieves smooth animations.
+
+**Wire flow (two phases):**
+
+**Phase 1 — Prologue (8 bytes):**
+```
+Offset: 0    1    2    3    4    5    6        7
+Bytes:  FF   55   08   00   02   26   <count>  <speed>
+```
+Tells the cup to expect `count` frames at the given speed (1 byte; default
+`0x82` = 130 in the official UI, interpreted as ms/frame).
+
+**Phase 2 — Per-frame upload, repeated `count` times:**
+```
+Offset: 0    1    2    3    4    5    6      7        8 .. 79
+Bytes:  FF   55   50   00   02   26   <idx>  <speed>  [72-byte bitmap]
+```
+- `idx` is the 0-based frame index (1 byte → max 256 frames).
+- `speed` is repeated in every frame for redundancy.
+- `LEN = 0x50` (80) — 8-byte header (`FF 55 LEN 00 02 26 idx speed`) plus
+  a 72-byte bitmap. The official builder computes
+  `LEN = ceil((bitmap_hex_len + 16) / 2)` (`sub-service.pretty.js:9682`),
+  where the constant 16 accounts for the 16 hex chars of header.
+  Note: this is **different** from the `0x25` static command's `LEN = 0x4E`,
+  because the static frame omits the idx/speed bytes.
+- The official app paces frames **~150 ms apart**, response-acked, retrying
+  up to 10 times on write failure.
+
+After the last frame is acknowledged, the cup begins playback from internal
+storage and continues until power-off or another `0x25`/`0x26` write replaces
+it. Frame transmission for a 5-frame animation completes in roughly 1 second
+at MTU 247+, vs. ~30 s × 5 with the old `0x25`-streaming approach.
+
+**Static-from-animation slice trick:**
+The official app stores every saved frame in unified
+`FF55 LEN 0002 26 idx speed bitmap` form. To send a single frame as a static
+display, it strips the first 16 hex chars (= 8 bytes of header) and ships
+the bare bitmap with `0x25`. This pattern confirms the 8-byte per-frame
+header above.
+
+**Example — 3-frame animation at 130 ms/frame:**
+```
+Prologue: FF 55 08 00 02 26 03 82
+Frame 0:  FF 55 50 00 02 26 00 82 <72 B>
+Frame 1:  FF 55 50 00 02 26 01 82 <72 B>
+Frame 2:  FF 55 50 00 02 26 02 82 <72 B>
+```
 
 ---
 
 ## 5. Communication Protocol Details
 
-### 5.1 Connection Sequence
+### 5.1 Connection sequence (mirrors the official Android app)
 
-1. **Device Discovery:**
-   - Filter: Device name = "SGUAI-C3"
-   - Optional services: `generic_access`, `device_information`, `0000ff00-...`
+1. Scan and match by advertised service UUID `0000ff00-...`; the device
+   advertises its name (`SGUAI-C3`) too.
+2. GATT connect.
+3. **Android only:** `setBLEMTU({mtu: 500})` then sleep 2 s.
+4. Get service `0000ff00-...` and its characteristics:
+   - `0000ff01-...` — write (command)
+   - `0000ff02-...` — notify, read (response)
+5. Enable notifications on `0xff02`.
 
-2. **GATT Connection:**
-   - Connect to GATT server
-   - Verify device name via Generic Access service (`gap.device_name`)
-   - Expected value: "SGUAI-C3" (strict match required)
+### 5.2 Write paths — two flavors
 
-3. **Service/Characteristic Setup:**
-   - Get primary service: `0000ff00-0000-1000-8000-00805f9b34fb`
-   - Get command characteristic: `0000ff01-...` (write)
-   - Get response characteristic: `0000ff02-...` (notify, read)
-   - Enable notifications on response characteristic
+| Path | Used by | Pre-write timing | State reset |
+|------|---------|------------------|-------------|
+| **`GET_BLE_WRITE` action** | reads, mode `0x23`, static image `0x25`, animation prologue `0x26`, every other state-changing command | 20 ms `Sleep(20)` after clearing the response-state buffer | Yes |
+| **Direct `writeValue`** (page-level) | greeting `0x17`, animation per-frame `0x26 (80 B)` | none | No |
 
-4. **Ready State:**
-   - Connection established
-   - Notifications active
-   - Ready to send commands
+The 20 ms guard exists to give the in-app state reset time to propagate
+before the write — it is not a firmware requirement, but the official app
+applies it consistently to commands that expect a response. The animation
+per-frame loop bypasses the guard to maximize throughput; the greeting
+bypasses it because greetings have no response handler at all.
 
-### 5.2 Request-Response Pattern
+### 5.3 Response handling
 
-**Timing:**
-- Command timeout: **5000ms (5 seconds)**
-- Each command waits for response before returning
-- Unsolicited responses logged but not matched to pending commands
+Responses are notifications on `0xff02`. The receive parser strips a
+2-byte trailer (`0x0D 0x0A`) and then dispatches on the feature byte
+(byte 4 of the un-stripped frame, byte 2 of the payload). Feature bytes
+**without** a parser entry — including `0x17` (greeting), `0x25` (static
+image), and `0x26` (animation) — are treated as fire-and-forget; the cup
+ACKs them at the BLE-write layer but emits no application-level response.
 
-**Flow:**
-```
-Client                          Device
-  |                               |
-  |---(1) Write Command---------->|
-  |                               |
-  |   [Wait up to 5s for response]
-  |                               |
-  |<--(2) Notification Response---|
-  |                               |
-  |   [Parse and return payload]  |
-  |                               |
-```
+### 5.4 Animation retry policy
 
-**Error Handling:**
-- Timeout after 5 seconds → `Error("Device response timeout")`
-- Invalid response format → Return raw response array
-- Connection lost → All pending requests rejected
+The per-frame loop retries on BLE-write failure up to **10 attempts** with
+**100 ms** backoff between retries (`sub-service.pretty.js:9719-24`). On
+exhaustion it surfaces an error to the user. Successful writes are paced
+**150 ms** apart (`:9716-18`).
 
-### 5.3 Data Types and Endianness
+### 5.5 Data types
 
-| Data Type | Size | Endianness | Usage |
+| Data Type | Size | Endianness | Notes |
 |-----------|------|------------|-------|
-| Command header | 2 bytes | Fixed | Always `0xFF 0x55` |
-| Length field | 1 byte | N/A | Unsigned integer (0-255) |
-| Function/Command codes | 1 byte | N/A | Unsigned integer |
-| Unicode codepoint | 2 bytes | Big-endian | High byte first |
-| Temperature | 1 byte | N/A | Unsigned integer (Celsius) |
-| Mode value | 1 byte | N/A | Unsigned integer |
-| Bitmap data | 120 bytes | MSB-first per byte | Bit 7 = leftmost pixel |
-| Terminator | 2 bytes | Fixed | Always `0x0D 0x0A` |
-
----
-
-## 6. Implementation Notes
-
-### 6.1 Known Issues and Inconsistencies
-
-**Issue 1: Temperature Command Uses String Literals**
-```javascript
-// INCORRECT: Uses string literals instead of numeric values
-await this.executeCommand(["0xFF", "0x55", "0x07", "0x0", "0x1", "0x1", "0x0"]);
-
-// Should be (like other commands):
-await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x01, 0x00]);
-```
-**Impact:** JavaScript coerces strings to numbers in `setUint8()`, so it works, but is inconsistent.
-
-**Issue 2: Dynamic Mode Command Uses Mixed Types**
-```javascript
-// INCORRECT: Mixes string literals and numeric variable
-await this.executeCommand(["0xFF", "0x55", "0x7", "0x0", "0x2", "0x23", modeValue]);
-
-// Should be:
-await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x02, 0x23, modeValue]);
-```
-
-**Issue 3: Image Data Buffer Size Mismatch**
-- Display is 48×12 = 576 pixels = 72 bytes needed
-- Implementation allocates 120 bytes
-- Reason unclear (device firmware requirement, buffer padding, or future expansion)
-
-### 6.2 Security Considerations
-
-1. **Device Name Verification:**
-   - Always verify device name matches "SGUAI-C3"
-   - Prevents connection to incorrect devices
-   - Uses Generic Access service for verification
-
-2. **Input Validation:**
-   - Greeting message: Maximum 20 characters (not enforced by protocol, only application)
-   - Mode values: Must be 0-3 (validated before sending)
-   - Image data: Must be 120 bytes (enforced by buffer allocation)
-
-3. **Error Handling:**
-   - All commands wrapped in try-catch blocks
-   - Timeout protection prevents hanging
-   - Response validation checks frame markers
-
-### 6.3 Best Practices
-
-1. **Command Construction:**
-   - Always use numeric literals (not strings)
-   - Calculate length field dynamically for variable-length commands
-   - Verify length field = actual command length
-
-2. **Response Handling:**
-   - Always validate frame markers (`0xFF`, `0x0D`, `0x0A`)
-   - Extract payload by removing headers and terminators
-   - Handle timeout gracefully
-
-3. **Connection Management:**
-   - Check connection status before sending commands
-   - Clean up on disconnect (stop notifications, clear pending requests)
-   - Handle unexpected disconnections
+| Frame header | 2 B | Fixed | Always `0xFF 0x55` |
+| Length field | 1 B | — | Equals total written buffer length |
+| Function | 1 B | — | `0x01` read, `0x02` write |
+| Feature | 1 B | — | See §3.2 |
+| Greeting text | 2 B/code unit | UTF-16 BE | Surrogate pairs for non-BMP |
+| Bitmap | 72 B | MSB-first per byte | Column-major RTL, rows TTB; see §4.5 |
+| Response trailer | 2 B | Fixed | `0x0D 0x0A` (responses only — writes have no trailer) |
 
 ---
 
 ## 7. Command Reference Summary
 
-| Command | Function | Command | Data Length | Total Length | Purpose |
-|---------|----------|---------|-------------|--------------|---------|
-| Read Version | `0x01` | `0x09` | 1 byte | 7 bytes | Query firmware version |
-| Read Temperature | `0x01` | `0x01` | 1 byte | 7 bytes | Read temperature sensor |
-| Set Greeting | `0x02` | `0x17` | Variable | 7 + N*2 bytes | Send text message (N ≤ 20) |
-| Set Mode | `0x02` | `0x23` | 1 byte | 7 bytes | Set animation mode (0-3) |
-| Set Image | `0x02` | `0x25` | 120 bytes | 126 bytes | Upload bitmap image |
+| Command | Function | Feature | Data | LEN | Purpose |
+|---------|----------|---------|------|-----|---------|
+| Read Version | `0x01` | `0x09` | 1 B `0x00` | 7 | Firmware version `X.Y` |
+| Read Temperature | `0x01` | `0x01` | 1 B `0x00` | 7 | Temperature (last data byte) |
+| Read Battery | `0x01` | `0x02` | 1 B `0x00` | 7 | Battery percent |
+| Read Temp Unit | `0x01` | `0x0B` | 1 B `0x00` | 7 | 0=°C, 1=°F |
+| Set Greeting | `0x02` | `0x17` | `<sub>` + UTF-16BE | 7 + 2K | `sub=0x01` + K UTF-16 code units, or `sub=0x00` (no data) to clear |
+| Set Motion | `0x02` | `0x23` | 1 B mode | 7 | 0=static, 1=→, 2=←, 3=flash |
+| Set Static Image | `0x02` | `0x25` | 72 B bitmap | 78 (`0x4E`) | One frame |
+| Animation Prologue | `0x02` | `0x26` | `<count><speed>` | 8 | Begin N-frame animation |
+| Animation Frame | `0x02` | `0x26` | `<idx><speed>` + 72 B | 80 (`0x50`) | Store frame (×N) |
+| Set Auto-off | `0x02` | `0x27` | 1 B seconds | 7 | Screen-off duration |
 
 ---
 
@@ -513,29 +448,43 @@ Payload:  [0x05, 0x01, 0x1F]
 Temp:     0x1F = 31°C (last byte)
 ```
 
-### Example 3: Set Greeting "OK"
+### Example 3: Set greeting "OK"
 ```
-Message: "OK"
-- 'O' = U+004F: [0x00, 0x4F]
-- 'K' = U+004B: [0x00, 0x4B]
+'O' = U+004F → 00 4F
+'K' = U+004B → 00 4B
 
-Command:  [0xFF, 0x55, 0x0B, 0x00, 0x02, 0x17, 0x01,
-           0x00, 0x4F, 0x00, 0x4B]
-Length:   11 bytes (0x0B)
+Command:  FF 55 0B 00 02 17 01  00 4F 00 4B
+Length:   0x0B (11)
 ```
 
-### Example 4: Set Mode to Flashing
+### Example 4: Clear greeting (empty)
 ```
-Command:  [0xFF, 0x55, 0x07, 0x00, 0x02, 0x23, 0x03]
-Mode:     0x03 = Flashing
+Command:  FF 55 07 00 02 17 00
 ```
 
-### Example 5: Set Image (All Black)
+### Example 5: Set greeting with emoji "🍵"
 ```
-Command:  [0xFF, 0x55, 0x7E, 0x00, 0x02, 0x25,
-           0xFF, 0xFF, ... (118 more 0xFF bytes)]
-Length:   126 bytes (0x7E)
-Result:   All 576 pixels lit (first 72 bytes = 0xFF)
+🍵 = U+1F375 → UTF-16 surrogate pair: D83C DF75
+
+Command:  FF 55 0F 00 02 17 01  D8 3C DF 75 ...
+```
+
+### Example 6: Set mode to flashing
+```
+Command:  FF 55 07 00 02 23 03      (0x03 = flashing)
+```
+
+### Example 7: Set static image (all on)
+```
+Command:  FF 55 4E 00 02 25  FF FF ... (72 × 0xFF)
+Length:   0x4E (78)          all 576 pixels lit
+```
+
+### Example 8: Upload a 2-frame animation
+```
+Prologue: FF 55 08 00 02 26 02 82
+Frame 0:  FF 55 50 00 02 26 00 82  <72 B bitmap>
+Frame 1:  FF 55 50 00 02 26 01 82  <72 B bitmap>
 ```
 
 ---
@@ -545,21 +494,26 @@ Result:   All 576 pixels lit (first 72 bytes = 0xFF)
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-10-28 | Initial specification based on implementation analysis |
+| 2.0 | 2026-04-24 | Reverse-engineered from `net.sguai.app` APK. Removed bogus 0x0D/0x0A terminators on writes, corrected static-image size to 72 B, corrected bitmap encoding to column-major RTL MSB-first, added `0x26` animation command, added `0x0B`/`0x27` feature bytes. |
 
 ---
 
-## 10. Additional Information
+## 10. Source citations
 
-### 10.1 Web Bluetooth API Requirements
-- Chrome 56+ or Edge 79+ (with Web Bluetooth enabled)
-- HTTPS required (or localhost for development)
-- User gesture required to initiate pairing
+All findings in this spec are traceable to specific lines in the
+beautified APK bundle (`assets/apps/__UNI__7FD700B/www/`):
 
-### 10.2 Device Requirements
-- BLE 4.0+ support
-- Device name must be exactly "SGUAI-C3"
-- Must implement custom service UUID `0000ff00-...`
-- Must support GATT notifications on response characteristic
+| Topic | File | Line |
+|-------|------|------|
+| Receive parser dispatch | `app-service.js` | 53159+ |
+| Hex-to-buffer (no terminator on writes) | `app-service.js` | 15096 |
+| `GET_BLE_WRITE` action with 20 ms guard | `app-service.js` | 49825 / 49854 |
+| `setBLEMTU(500)` on Android | `app-service.js` | 49500 |
+| Static image builder (`0x25`) | `app-service.js` | 51592 |
+| Animation prologue builder (`0x26`) | `app-service.js` | 51624 |
+| Per-frame animation loop with retry | `app-sub-service.js` | 9678–9724 |
+| Bitmap encoder (column-major RTL) | `app-sub-service.js` | 10113–10135 |
+| Greeting builder (page-level) | `app-sub-service.js` | 4083–4088 |
 
 ---
 
