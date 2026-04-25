@@ -268,15 +268,40 @@ Bytes:  FF   55   4E   00   02   25   [72 bytes of bit-packed bitmap]
   The official builder selects 0x42 only when the supplied hex string is 120
   characters (60 bytes); otherwise it sends 0x4E (72 bytes) — the C3 case.
 
-**Bit Packing — column-major, RTL, rows TTB, MSB-first:**
+**Bit Packing — firmware-dependent.** Two encodings exist; this client
+implements the second (verified on hardware):
+
+> ⚠️ **Firmware mismatch warning.** The official `net.sguai.app` Android
+> APK ships a **column-major right-to-left** encoder
+> (`app-sub-service.pretty.js:10113-10135`):
+>
+> ```js
+> for (col = WIDTH - 1; col >= 0; col--)
+>     for (row = 0; row < HEIGHT; row++)
+>         accumulate_bit(grid[row][col]);
+> ```
+>
+> That encoding is **byte-incompatible with SGUAI-C3 firmware 1.6** —
+> sending its output produces a scrambled display where bit index N
+> lands at row `N÷48`, col `N mod 48`. The APK presumably targets newer
+> firmware (likely C3 fw ≥ 2.x or C5).
+
+**Empirically verified encoding for SGUAI-C3 fw 1.6 — row-major LTR,
+rows TTB, MSB-first:**
 
 ```js
-// app-sub-service.pretty.js:10113-10135 (paraphrased)
-for (col = WIDTH - 1; col >= 0; col--)        // columns RIGHT-TO-LEFT
-    for (row = 0; row < HEIGHT; row++)        // rows TOP-TO-BOTTOM
+for (row = 0; row < HEIGHT; row++)            // rows TOP-TO-BOTTOM
+    for (col = 0; col < WIDTH; col++)         // cols LEFT-TO-RIGHT
         accumulate_bit(grid[row][col]);       // 1 = LED on
         if (8 bits accumulated) emit_byte_MSB_first();
 ```
+
+Verified by single-pixel and "F"-shape tests on the user's cup
+(2026-04-25): `grid[0][0] = 1` lights the physical top-left LED; an
+asymmetric F renders right-side-up. Switching to the APK's column-major
+RTL encoder produced a scrambled display whose pixel positions matched
+exactly the row-major-LTR-interpretation of the *APK's bytes*, confirming
+the cup's framebuffer scan is row-major LTR.
 
 So for the 48×12 C3 display:
 - byte 0 bit 7 = pixel `(row=0, col=47)`
@@ -494,7 +519,8 @@ Frame 1:  FF 55 50 00 02 26 01 82  <72 B bitmap>
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-10-28 | Initial specification based on implementation analysis |
-| 2.0 | 2026-04-24 | Reverse-engineered from `net.sguai.app` APK. Removed bogus 0x0D/0x0A terminators on writes, corrected static-image size to 72 B, corrected bitmap encoding to column-major RTL MSB-first, added `0x26` animation command, added `0x0B`/`0x27` feature bytes. |
+| 2.0 | 2026-04-24 | Reverse-engineered from `net.sguai.app` APK. Removed bogus 0x0D/0x0A terminators on writes, corrected static-image size to 72 B, set bitmap encoding to column-major RTL MSB-first (per APK), added `0x26` animation command, added `0x0B`/`0x27` feature bytes. |
+| 2.1 | 2026-04-25 | **Bitmap encoding correction (firmware-dependent).** Hardware testing on SGUAI-C3 firmware 1.6 revealed the APK's column-major RTL encoder is byte-incompatible with this firmware. Reverted bitmap encoder to row-major LTR MSB-first. The 0x26 animation protocol path itself is correct; only the encoding within each frame's 72-byte payload differs. APK encoder presumably targets newer firmware. |
 
 ---
 

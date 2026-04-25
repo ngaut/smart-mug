@@ -334,9 +334,19 @@ class BLEManager:
 # Image Processing
 
 def pack_bitmap(image_data):
-    """Pack a 48x12 grid into 72 bytes using the official wire format:
-    column-major, columns scanned right-to-left, rows top-to-bottom,
-    bits packed MSB-first within each byte."""
+    """Pack a 48x12 grid into 72 bytes for the cup's framebuffer.
+
+    Encoding: **row-major left-to-right, top-to-bottom, MSB-first within
+    each byte**. Verified empirically on SGUAI-C3 firmware 1.6 (2026-04):
+    a single pixel at grid[0][0] lights the physical top-left LED, and an
+    asymmetric "F" shape renders right-side-up.
+
+    Note: the official `net.sguai.app` Android APK ships a *column-major
+    right-to-left* encoder at `app-sub-service.pretty.js:10113-10135`.
+    That encoder is byte-incompatible with this firmware — sending its
+    output produces a scrambled display (bit index N lands at row N÷48,
+    col N mod 48). The APK's encoder presumably targets newer firmware
+    (likely C3 fw ≥ 2.x or the C5 family). See PROTOCOL_SPEC.md §4.5."""
     if len(image_data) != IMAGE_HEIGHT or any(len(r) != IMAGE_WIDTH for r in image_data):
         raise ValueError(
             f"grid must be {IMAGE_HEIGHT}×{IMAGE_WIDTH}, got "
@@ -345,8 +355,8 @@ def pack_bitmap(image_data):
 
     out = bytearray(72)
     i = 0
-    for col in range(IMAGE_WIDTH - 1, -1, -1):
-        for row in range(IMAGE_HEIGHT):
+    for row in range(IMAGE_HEIGHT):
+        for col in range(IMAGE_WIDTH):
             if image_data[row][col]:
                 out[i // 8] |= 1 << (7 - (i % 8))
             i += 1

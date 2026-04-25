@@ -26,12 +26,19 @@ const ANIM_MAX_RETRIES = 10;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 /**
- * Pack a 12x48 grid into 72 bytes using the official wire format:
- * column-major, columns scanned right-to-left, rows top-to-bottom,
- * bits packed MSB-first within each byte.
+ * Pack a 12x48 grid into 72 bytes for the cup's framebuffer.
  *
- * Reference: app-sub-service.pretty.js:10113-10135. Verified byte-identical
- * to the JS port across 500 random grids in python/smart_mug.py tests.
+ * Encoding: **row-major left-to-right, top-to-bottom, MSB-first within
+ * each byte**. Verified empirically on SGUAI-C3 firmware 1.6 (2026-04):
+ * grid[0][0] = 1 lights the physical top-left LED; an asymmetric "F"
+ * shape renders right-side-up.
+ *
+ * Note: the official `net.sguai.app` Android APK ships a *column-major
+ * right-to-left* encoder at `app-sub-service.pretty.js:10113-10135`.
+ * That encoder is byte-incompatible with this firmware — its output
+ * produces a scrambled display (bit index N lands at row N÷48, col N mod
+ * 48). The APK's encoder presumably targets newer firmware (likely C3
+ * fw ≥ 2.x or the C5 family). See PROTOCOL_SPEC.md §4.5.
  */
 function packBitmap(grid) {
   if (!Array.isArray(grid) || grid.length !== IMAGE_HEIGHT) {
@@ -46,8 +53,8 @@ function packBitmap(grid) {
   }
   const out = new Uint8Array(72);
   let i = 0;
-  for (let col = IMAGE_WIDTH - 1; col >= 0; col--) {
-    for (let row = 0; row < IMAGE_HEIGHT; row++) {
+  for (let row = 0; row < IMAGE_HEIGHT; row++) {
+    for (let col = 0; col < IMAGE_WIDTH; col++) {
       if (grid[row][col]) out[i >> 3] |= 1 << (7 - (i & 7));
       i++;
     }
