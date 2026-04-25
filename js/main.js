@@ -1308,8 +1308,10 @@ async function playMultiCupAnimation() {
       if (statusDiv) statusDiv.textContent = `Uploading ${totalFrames} frames...`;
 
       await window.multiCupBLE.setAnimationAll(cupFrames, speed, { silent: false });
-      // Set mode after upload — for animations we generally want static mode
-      // (the cup handles frame timing itself; scroll/flash would compound).
+      // Re-apply the user's chosen motion mode after the upload (the cup
+      // resets to its default mode on each frame store). The user can pair
+      // an animation with a scroll/flash overlay if they want — those layer
+      // on top of the per-frame playback.
       await window.multiCupBLE.setDynamicModeAll(selectedMode);
 
       showToast(`✅ Animation uploaded — cups playing autonomously`, 'success');
@@ -1328,9 +1330,11 @@ async function playMultiCupAnimation() {
     showToast('Demo mode: simulating cup playback', 'info');
   }
 
-  // Phase 2: local preview loop (independent of cup playback). Cycles at the
-  // same speed the cup does so the on-screen preview tracks roughly with
-  // what the cup is showing, though they may drift over time.
+  // Phase 2: local preview loop (independent of cup playback). Cycles at
+  // roughly the cup's speed so the preview tracks what's on the cup, with
+  // a 50 ms floor — the user can't perceive faster, and the wire `speed`
+  // byte sent to the cup is unchanged.
+  const previewIntervalMs = Math.max(50, speed);
   const previewLoop = () => {
     if (!multiCupAnimationState.isPlaying) return;
     const f = multiCupAnimationState.currentFrame;
@@ -1340,7 +1344,7 @@ async function playMultiCupAnimation() {
       statusDiv.textContent = `Cup playing autonomously — preview frame ${f + 1}/${totalFrames}`;
     }
     multiCupAnimationState.currentFrame = (f + 1) % totalFrames;
-    multiCupAnimationState.intervalId = setTimeout(previewLoop, speed);
+    multiCupAnimationState.intervalId = setTimeout(previewLoop, previewIntervalMs);
   };
   previewLoop();
 }

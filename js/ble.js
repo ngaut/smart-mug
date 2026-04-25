@@ -337,8 +337,10 @@ class BLEManager {
    */
   async setGreetingMessage(message) {
     if (!this.server) throw new Error("Not connected to device");
-    const text = message || "";
-    const subcmd = text ? 0x01 : 0x00;
+    // Coerce explicitly so falsy non-strings like 0 / false are rendered
+    // as their string form rather than silently clearing the display.
+    const text = message == null ? "" : String(message);
+    const subcmd = text.length ? 0x01 : 0x00;
     const command = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x17, subcmd, ...utf16beBytes(text)];
     command[2] = command.length;
     const unlock = await this._mutex.acquire();
@@ -409,11 +411,12 @@ class BLEManager {
    */
   async setAnimation(frames, speed = 130) {
     if (!this.server) throw new Error("Not connected to device");
-    if (!frames || frames.length === 0) throw new Error("At least one frame required");
-    if (frames.length > 255) throw new Error("Max 255 frames");
-    if (!Number.isInteger(speed) || speed < 0 || speed > 255) {
-      throw new Error("speed must be 0..255");
+    if (!Array.isArray(frames) || frames.length === 0) {
+      throw new Error("frames must be a non-empty array");
     }
+    if (frames.length > 255) throw new Error("Max 255 frames");
+    if (!Number.isInteger(speed)) throw new Error("speed must be an integer");
+    if (speed < 0 || speed > 255) throw new Error("speed must be 0..255");
 
     const unlock = await this._mutex.acquire();
     try {
