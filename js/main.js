@@ -1257,7 +1257,7 @@ let multiCupAnimationState = {
  * frame). Default 130 matches the official app's `speedValue: 130`.
  */
 async function playMultiCupAnimation() {
-  if (!multiCupProcessedData || !multiCupProcessedData.frames) {
+  if (!multiCupProcessedData?.frames?.length) {
     showToast('No animation frames available. Please process a GIF/animated image.', 'warning');
     return;
   }

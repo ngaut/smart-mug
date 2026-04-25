@@ -34,10 +34,15 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
  * to the JS port across 500 random grids in python/smart_mug.py tests.
  */
 function packBitmap(grid) {
-  if (grid.length !== IMAGE_HEIGHT || grid.some(r => r.length !== IMAGE_WIDTH)) {
+  if (!Array.isArray(grid) || grid.length !== IMAGE_HEIGHT) {
     throw new Error(
-      `grid must be ${IMAGE_HEIGHT}×${IMAGE_WIDTH}, got ${grid.length}×${grid[0]?.length || 0}`
+      `grid must be a ${IMAGE_HEIGHT}-row array, got ${Array.isArray(grid) ? `length ${grid.length}` : typeof grid}`
     );
+  }
+  for (let r = 0; r < IMAGE_HEIGHT; r++) {
+    if (!Array.isArray(grid[r]) || grid[r].length !== IMAGE_WIDTH) {
+      throw new Error(`grid row ${r} must be ${IMAGE_WIDTH} elements, got ${grid[r]?.length ?? typeof grid[r]}`);
+    }
   }
   const out = new Uint8Array(72);
   let i = 0;
@@ -365,8 +370,10 @@ class BLEManager {
         await this._executeLocked(command, 10000);
       } catch (err) {
         // Cup occasionally drops the echo notification; the write itself
-        // was ACKed at the BLE layer so the mode is set.
-        if (!String(err.message).includes("timeout")) throw err;
+        // was ACKed at the BLE layer so the mode is set. Match exactly the
+        // message we throw ourselves inside _executeLocked, not any error
+        // that happens to contain the word "timeout".
+        if (err.message !== "Device response timeout") throw err;
       }
       return true;
     } finally {
@@ -418,16 +425,23 @@ class BLEManager {
     if (!Number.isInteger(speed)) throw new Error("speed must be an integer");
     if (speed < 0 || speed > 255) throw new Error("speed must be 0..255");
 
+    // Pre-pack every frame BEFORE acquiring the mutex / sending the prologue.
+    // If any frame has the wrong shape, we throw upfront with frame-index
+    // context, leaving the cup's state untouched. Without this, a bad frame
+    // mid-upload would leave the cup expecting more data than will arrive.
+    const payloads = frames.map((f, idx) => {
+      try { return packBitmap(f); }
+      catch (err) { throw new Error(`frame ${idx}: ${err.message}`); }
+    });
+
     const unlock = await this._mutex.acquire();
     try {
       const n = frames.length;
-      // Prologue
       await this._write([0xFF, 0x55, 0x08, 0x00, 0x02, 0x26, n, speed]);
       await sleep(ANIM_PROLOGUE_DELAY_MS);
 
       for (let idx = 0; idx < n; idx++) {
-        const payload = packBitmap(frames[idx]);
-        const cmd = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x26, idx, speed, ...payload];
+        const cmd = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x26, idx, speed, ...payloads[idx]];
         cmd[2] = cmd.length;  // 0x50 (80)
         await this._writeFrameWithRetry(cmd);
         if (idx < n - 1) await sleep(ANIM_FRAME_DELAY_MS);

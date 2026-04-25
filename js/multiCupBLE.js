@@ -503,7 +503,9 @@ class MultiCupBLEManager {
 
     const startTime = Date.now();
     const promises = [];
-    const results = [];
+    // Indexed by cup position so callers can use results[i] reliably.
+    // null means the cup wasn't connected and no attempt was made.
+    const results = [null, null, null, null];
 
     if (!silent) {
       const n = cupFrames.find(f => f && f.length)?.length || 0;
@@ -514,24 +516,25 @@ class MultiCupBLEManager {
       if (!this.cups[i].connected) continue;
       const frames = cupFrames[i];
       if (!frames || frames.length === 0) {
-        results.push({ success: false, position: i, error: 'no frames for cup' });
+        results[i] = { success: false, position: i, error: 'no frames for cup' };
         continue;
       }
+      const cupIdx = i;
       const promise = this.cups[i].manager.setAnimation(frames, speed)
         .then(() => {
-          const elapsed = Date.now() - startTime;
-          results.push({ success: true, position: i, elapsed });
+          results[cupIdx] = { success: true, position: cupIdx, elapsed: Date.now() - startTime };
         })
         .catch(error => {
-          results.push({ success: false, position: i, error: error.message });
+          results[cupIdx] = { success: false, position: cupIdx, error: error.message };
         });
       promises.push(promise);
     }
     await Promise.all(promises);
 
     const totalElapsed = Date.now() - startTime;
-    const successful = results.filter(r => r.success).length;
-    const failed = results.filter(r => !r.success).length;
+    const attempted = results.filter(r => r !== null);
+    const successful = attempted.filter(r => r.success).length;
+    const failed = attempted.filter(r => !r.success).length;
     this.stats.lastSendTime = totalElapsed;
     this.stats.totalFramesSent += successful;
 
@@ -540,7 +543,7 @@ class MultiCupBLEManager {
       if (failed > 0) console.log(`   Failed: ${failed}`);
     }
 
-    return { success: failed === 0, totalElapsed, results, successful, failed };
+    return { success: failed === 0 && successful > 0, totalElapsed, results, successful, failed };
   }
 
   /**
