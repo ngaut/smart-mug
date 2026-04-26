@@ -53,6 +53,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('imageEditorBtn').addEventListener('click', showImageEditorFunction);
   document.getElementById('multiCupBtn').addEventListener('click', showMultiCupFunction);
 
+  // Refresh button on the device-status card
+  const refreshStatusBtn = document.getElementById('refreshStatusBtn');
+  if (refreshStatusBtn) {
+    refreshStatusBtn.addEventListener('click', () => refreshDeviceStatus({ manual: true }));
+  }
+
   // Initialize image editor
   window.imageEditor.initializeGrid();
 
@@ -120,10 +126,15 @@ async function connectToDevice() {
     connectButton.textContent = 'Disconnect';
     connectButton.disabled = false;
     updateDeviceStatus('Connected');
-    updateDeviceStatus('Connected');
     updateSidebarConnectButton(true);
     hideConnectionPanel();
     showWelcomeMessage();
+
+    // Show + populate the device-status card. Schedule background refresh
+    // every 60 s so the user sees battery drift while connected.
+    refreshDeviceStatus({ manual: false });
+    if (deviceStatusInterval) clearInterval(deviceStatusInterval);
+    deviceStatusInterval = setInterval(() => refreshDeviceStatus({ manual: false }), 60000);
 
   } catch (error) {
     console.error('Connection failed:', error);
@@ -143,8 +154,66 @@ function handleDisconnection() {
   }
   updateDeviceStatus('Disconnected', true);
   updateSidebarConnectButton(false);
+  // Hide the device-status card and stop the background refresh.
+  const card = document.getElementById('deviceStatusCard');
+  if (card) card.classList.add('hidden');
+  if (deviceStatusInterval) {
+    clearInterval(deviceStatusInterval);
+    deviceStatusInterval = null;
+  }
   showToast('Device disconnected. Please reconnect.', 'warning');
 }
+
+// Background refresh handle for the device-status card.
+let deviceStatusInterval = null;
+
+/**
+ * Read version + temperature + battery and update the sidebar status card.
+ * Pops a toast on errors only when triggered manually (via the ↻ button)
+ * to avoid spamming the user with auto-refresh errors.
+ */
+async function refreshDeviceStatus({ manual = false } = {}) {
+  if (!isConnected || isDemoMode) return;
+  const card = document.getElementById('deviceStatusCard');
+  if (!card) return;
+  card.classList.remove('hidden');
+
+  const set = (id, text, klass) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.className = klass;
+  };
+  // Read sequentially — they all share the BLEManager mutex anyway.
+  // Each takes ~50 ms so the whole refresh is ~150 ms.
+  try {
+    set('statusVersion', await bleManager.readVersion(), 'font-mono text-gray-800');
+  } catch (e) {
+    set('statusVersion', '—', 'font-mono text-gray-400');
+    if (manual) showToast(`Read version failed: ${e.message}`, 'error');
+  }
+  try {
+    const t = await bleManager.readTemperature();
+    set('statusTemp', `${t}°C`, 'font-mono text-gray-800');
+  } catch (e) {
+    set('statusTemp', '—', 'font-mono text-gray-400');
+    if (manual) showToast(`Read temperature failed: ${e.message}`, 'error');
+  }
+  try {
+    const b = await bleManager.readBattery();
+    const low = b <= 20;
+    set('statusBattery', `${b}%`, 'font-mono ' + (low ? 'text-red-600 font-bold' : 'text-gray-800'));
+    document.getElementById('batteryWarning').classList.toggle('hidden', !low);
+  } catch (e) {
+    set('statusBattery', '—', 'font-mono text-gray-400');
+    document.getElementById('batteryWarning').classList.add('hidden');
+    if (manual) showToast(`Read battery failed: ${e.message}`, 'error');
+  }
+}
+
+// Expose so other modules can trigger after upload (e.g. after upload
+// finishes, refresh battery to reflect the just-consumed energy).
+window.refreshDeviceStatus = refreshDeviceStatus;
 
 // Function panel handlers
 function showVersionFunction() {
@@ -985,7 +1054,7 @@ async function sendAnimationToDevice() {
   previewLoop();
 }
 
-function stopAnimationToDevice() {
+async function stopAnimationToDevice() {
   deviceAnimationState.isRunning = false;
 
   if (deviceAnimationState.intervalId) {
@@ -993,13 +1062,22 @@ function stopAnimationToDevice() {
     deviceAnimationState.intervalId = null;
   }
 
-  // Show send button, hide stop button
   document.getElementById('sendAnimationBtn').classList.remove('hidden');
   document.getElementById('stopAnimationBtn').classList.add('hidden');
-
-  // Hide progress display
   document.getElementById('deviceAnimationProgress').classList.add('hidden');
 
+  // Actually stop the cup. Without this the cup keeps cycling autonomously
+  // (that's the whole point of 0x26) — Stop on the browser only stops the
+  // local preview. Sending a static all-off frame via 0x25 interrupts the
+  // animation playback and clears the display.
+  if (isConnected && !isDemoMode) {
+    try {
+      const blank = Array.from({ length: 12 }, () => Array(48).fill(0));
+      await bleManager.setImageData(blank);
+    } catch (e) {
+      console.warn('Could not send stop frame:', e.message);
+    }
+  }
   showToast('Animation stopped', 'info');
 }
 
@@ -1306,17 +1384,32 @@ async function playMultiCupAnimation() {
 /**
  * Stop Multi-Cup Animation
  */
-function stopMultiCupAnimation() {
+async function stopMultiCupAnimation() {
   multiCupAnimationState.isPlaying = false;
   if (multiCupAnimationState.intervalId) {
     clearTimeout(multiCupAnimationState.intervalId);
     multiCupAnimationState.intervalId = null;
   }
 
-  // Update UI
   document.getElementById('playMultiCupAnimationBtn').classList.remove('hidden');
   document.getElementById('stopMultiCupAnimationBtn').classList.add('hidden');
   document.getElementById('multiCupAnimationStatus').classList.add('hidden');
+
+  // Send a blank static frame to each cup to halt autonomous playback.
+  // Without this, every connected cup keeps cycling its uploaded animation.
+  if (!isDemoMode) {
+    const blankChunks = [
+      Array.from({ length: 12 }, () => Array(48).fill(0)),
+      Array.from({ length: 12 }, () => Array(48).fill(0)),
+      Array.from({ length: 12 }, () => Array(48).fill(0)),
+      Array.from({ length: 12 }, () => Array(48).fill(0)),
+    ];
+    try {
+      await window.multiCupBLE.sendToAll(blankChunks, { silent: true });
+    } catch (e) {
+      console.warn('Could not send stop frames:', e.message);
+    }
+  }
 
   showToast('Animation stopped', 'info');
 }

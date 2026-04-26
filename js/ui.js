@@ -824,7 +824,6 @@ function updateImageStatus(message, isError = false) {
 }
 
 function showToast(message, type = "info") {
-  // Create toast container if it doesn't exist
   let toastContainer = document.getElementById("toastContainer");
   if (!toastContainer) {
     toastContainer = document.createElement("div");
@@ -833,12 +832,8 @@ function showToast(message, type = "info") {
     document.body.appendChild(toastContainer);
   }
 
-  // Create toast element
-  const toast = document.createElement("div");
-
-  // Set toast classes based on type
   const baseClasses =
-    "px-4 py-3 rounded-lg shadow-lg text-white font-medium transition-all duration-300 transform translate-x-full";
+    "px-4 py-3 rounded-lg shadow-lg text-white font-medium transition-all duration-300 transform translate-x-full max-w-md";
   const typeClasses = {
     info: "bg-blue-500",
     success: "bg-green-500",
@@ -846,11 +841,23 @@ function showToast(message, type = "info") {
     error: "bg-red-500",
   };
 
-  toast.className = `${baseClasses} ${typeClasses[type] || typeClasses["info"]
-    }`;
-  toast.textContent = message;
+  // Stickier for messages the user actually needs to read.
+  const lifetimeMs = { error: 6000, warning: 4500, success: 3000, info: 3000 }[type] || 3000;
 
-  // Add toast to container
+  const toast = document.createElement("div");
+  toast.className = `${baseClasses} ${typeClasses[type] || typeClasses.info}`;
+
+  // Allow click-to-dismiss for stickier messages.
+  toast.style.cursor = "pointer";
+  toast.title = "Click to dismiss";
+  const dismiss = () => {
+    toast.classList.remove("translate-x-0");
+    toast.classList.add("translate-x-full");
+    setTimeout(() => toast.parentNode?.removeChild(toast), 300);
+  };
+  toast.addEventListener("click", dismiss);
+
+  toast.textContent = message;
   toastContainer.appendChild(toast);
 
   // Animate in
@@ -859,16 +866,7 @@ function showToast(message, type = "info") {
     toast.classList.add("translate-x-0");
   }, 10);
 
-  // Remove toast after 3 seconds
-  setTimeout(() => {
-    toast.classList.remove("translate-x-0");
-    toast.classList.add("translate-x-full");
-    setTimeout(() => {
-      if (toast.parentNode) {
-        toast.parentNode.removeChild(toast);
-      }
-    }, 300);
-  }, 3000);
+  setTimeout(dismiss, lifetimeMs);
 }
 
 /**

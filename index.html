@@ -48,6 +48,32 @@
                             </button>
                         </div>
 
+                        <!-- Device Status Card (shown when connected) -->
+                        <div id="deviceStatusCard" class="mb-4 pb-4 border-b border-gray-200 hidden">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">Device Status</div>
+                                <button id="refreshStatusBtn" title="Refresh"
+                                    class="text-xs text-blue-600 hover:text-blue-800 px-1">↻</button>
+                            </div>
+                            <div class="space-y-1 text-sm">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-600">Firmware</span>
+                                    <span id="statusVersion" class="font-mono text-gray-800">—</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-600">Temperature</span>
+                                    <span id="statusTemp" class="font-mono text-gray-800">—</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-gray-600">Battery</span>
+                                    <span id="statusBattery" class="font-mono text-gray-800">—</span>
+                                </div>
+                            </div>
+                            <div id="batteryWarning" class="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 hidden">
+                                ⚠️ Low battery — consider charging the cup
+                            </div>
+                        </div>
+
                         <h2 class="text-lg font-semibold mb-4">Functions</h2>
                         <ul id="functionList" class="space-y-2">
                             <li>
