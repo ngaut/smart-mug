@@ -441,6 +441,11 @@ Bytes:  FF   55   07   00   01   27   00
 send `set 0` once after connecting. Persistence across power cycles
 not verified — re-send after reconnects to be safe.
 
+**Side effect (observed on fw 1.6):** with the flag disabled (always-on
+display), the cup may stop appearing in fresh BLE scans while it's
+actively driving the panel. Cached connect-by-address still works;
+plan for this when designing client reconnection logic.
+
 ---
 
 ## 5. Communication Protocol Details

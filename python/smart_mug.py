@@ -107,13 +107,34 @@ class BLEManager:
             _warn(f"could not clear cache: {e}")
 
     async def find_device(self, use_cache=True):
-        """Locate the cup. Tries the cached address first (5 s scan), then
-        falls back to a 15 s scan with auto-select on name match."""
+        """Locate the cup. Tries the cached address first (direct connect,
+        then 5 s scan), then falls back to a 15 s scan with auto-select
+        on name match.
+
+        Direct connect-by-address bypasses the scan entirely — useful
+        when the cup has auto-off disabled (§4.7) and may not appear
+        in scans while it's actively driving the panel.
+        """
         if use_cache:
             cache = _load_cache()
             cached_addr = cache.get("address")
             if cached_addr:
                 print(f"Cached device: {cache.get('name')} ({cached_addr})")
+                # Try a direct address connect first — works even when
+                # the cup isn't advertising (always-on display side effect).
+                try:
+                    direct = BleakClient(cached_addr)
+                    await asyncio.wait_for(direct.connect(), timeout=8.0)
+                    if direct.is_connected:
+                        print("✓ Direct connect to cached address succeeded")
+                        await direct.disconnect()
+                        # Return a lightweight sentinel that connect()
+                        # will treat as an address. BleakClient(address)
+                        # accepts a string directly on all platforms.
+                        return cached_addr
+                except (asyncio.TimeoutError, Exception) as e:
+                    print(f"⚠ Direct connect failed ({type(e).__name__}); trying scan...")
+
                 try:
                     for d in await BleakScanner.discover(timeout=5.0):
                         if d.address == cached_addr:
@@ -150,8 +171,10 @@ class BLEManager:
         return selected
 
     async def connect(self, device):
-        """Connect to device"""
-        print(f"Connecting to {device.address}...")
+        """Connect to device. Accepts a BLEDevice or a raw address string
+        (the latter from the direct-connect path in find_device)."""
+        addr = device if isinstance(device, str) else device.address
+        print(f"Connecting to {addr}...")
         self.client = BleakClient(device)
         await self.client.connect()
         await asyncio.sleep(1)
@@ -667,7 +690,7 @@ async def connected_manager(args):
 # Flags that don't belong to any cmd-specific parser but appear in CLI args.
 # Listed here so _parse_image_opts knows to consume them silently rather than
 # warning, and `_first_positional` knows how many args to skip past.
-_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode"}
+_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive"}
 _GLOBAL_FLAGS_WITH_VALUE = {"--mode", "--host", "--port"}
 
 VALID_MODES = ("static", "scrollRight", "scrollLeft", "flashing")
@@ -877,8 +900,23 @@ async def cmd_animate(args):
     if len(frames) > 3:
         print(f"... ({len(frames) - 3} more)")
 
+    keep_alive = "--no-keep-alive" not in args
+
     try:
         async with connected_manager(args) as m:
+            if keep_alive:
+                # Disable the cup's auto-screen-off so the animation
+                # plays continuously after we disconnect. Side effect
+                # documented in PROTOCOL_SPEC.md §4.7: the cup may
+                # stop advertising while always-on; the direct-address
+                # connect path in find_device handles that on next run.
+                try:
+                    await m.set_auto_off(0)
+                    print("✓ Auto-off disabled (display will stay alive)")
+                except Exception as e:
+                    # Don't fail the whole upload if the keep-alive
+                    # write didn't go through — the animation matters more.
+                    print(f"⚠ Could not disable auto-off ({e}); proceeding anyway")
             print(f"\nUploading {len(frames)} frame(s) at speed={speed}...")
             await m.set_animation(frames, speed=speed)
             print("✓ Animation uploaded — cup is now playing autonomously")
@@ -1050,7 +1088,10 @@ Commands:
   mode <mode> [--rescan]                      Set display mode
   image <file> [opts] [--rescan]              Upload static image
   image --test [--rescan]                     Upload test pattern
-  animate <gif> [opts] [-s SPEED] [--rescan]  Upload animation (cup plays it)
+  animate <gif> [opts] [-s SPEED] [--rescan] [--no-keep-alive]
+                                              Upload animation (cup plays it).
+                                              Auto-disables screen sleep by default
+                                              so the loop plays continuously.
   read [field ...] [--rescan]                 Read version / temperature / battery
   auto-off [on|off] [--rescan]                Set or read screen auto-off flag
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
