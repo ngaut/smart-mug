@@ -349,11 +349,28 @@ Offset: 0    1    2    3    4    5    6        7
 Bytes:  FF   55   08   00   02   26   <count>  <speed>
 ```
 Tells the cup to expect `count` frames at the given speed (1 byte; default
-`0x82` = 130 in the official UI). **Speed unit confirmed: milliseconds per
-frame.** Verified on SGUAI-C3 firmware 1.6 (2026-04-25): a 4-frame
-animation at speed=200 cycled at ~1 cycle/second (4 × 200 ms = 800 ms);
-the same animation at speed=20 cycled at ~12.5 cycles/second (4 × 20 ms
-= 80 ms). Range is 1–255; 0 produces unspecified behavior.
+`0x82` = 130 in the official UI).
+
+**Speed-byte semantics (partially characterized on SGUAI-C3 fw 1.6,
+2026-04-25):** larger byte = faster playback (monotonic). The exact
+unit / relationship is not yet pinned down quantitatively. Observed:
+
+| Speed | Behavior |
+|------:|---|
+| 20    | Slow — several seconds per 4-frame cycle |
+| 130 (official default) | Comfortable mid-speed, roughly 1 second per 4-frame cycle |
+| 200   | Faster than default |
+| 255   | Very fast, near-blur |
+
+The relationship is *not* `ms_per_frame = speed` (under that hypothesis
+small values would be fast, but they're slow). It is consistent with an
+inverse model (`period ∝ 1/speed`) or with the cup using `speed` as an
+internal accumulator increment with frame advance on overflow, but two
+data points isn't enough to discriminate. Stick with the official
+default of 130 for general use; iterate empirically for specific
+cycle rates.
+
+Range: 1–255 in the official app. 0 produces unspecified behavior.
 
 **Phase 2 — Per-frame upload, repeated `count` times:**
 ```
@@ -530,7 +547,7 @@ Frame 1:  FF 55 50 00 02 26 01 82  <72 B bitmap>
 |---------|------|---------|
 | 1.0 | 2025-10-28 | Initial specification based on implementation analysis |
 | 2.0 | 2026-04-24 | Reverse-engineered from `net.sguai.app` APK. Removed bogus 0x0D/0x0A terminators on writes, corrected static-image size to 72 B, added `0x26` animation command and `0x0B`/`0x27` feature bytes. Bitmap encoder was set to column-major RTL MSB-first to match the APK; this turned out to be wrong for fw 1.6 — see v2.1. |
-| 2.1 | 2026-04-25 | **Bitmap encoding corrected to row-major LTR (firmware-dependent).** Hardware testing on SGUAI-C3 firmware 1.6 showed the APK's column-major RTL encoder produces a scrambled display: a single pixel at `grid[0][0]` lit row 11 col 36 (= bit index 564 ÷ 48 / mod 48), proving the cup's framebuffer is row-major LTR. Reverted both Python and JS encoders to row-major LTR MSB-first. The 0x26 animation protocol path itself was correct; only the bit ordering inside each frame's 72-byte payload changed. The APK presumably targets newer firmware (≥ 2.x or C5 family). End-to-end verified: scrolling text reads correctly, a 4-digit cycling animation plays in order (1→2→3→4→1...). **Speed byte unit confirmed as ms/frame** by comparing speed=200 (≈1 cycle/s) vs speed=20 (≈12.5 cycles/s). |
+| 2.1 | 2026-04-25 | **Bitmap encoding corrected to row-major LTR (firmware-dependent).** Hardware testing on SGUAI-C3 firmware 1.6 showed the APK's column-major RTL encoder produces a scrambled display: a single pixel at `grid[0][0]` lit row 11 col 36 (= bit index 564 ÷ 48 / mod 48), proving the cup's framebuffer is row-major LTR. Reverted both Python and JS encoders to row-major LTR MSB-first. The 0x26 animation protocol path itself was correct; only the bit ordering inside each frame's 72-byte payload changed. The APK presumably targets newer firmware (≥ 2.x or C5 family). End-to-end verified: scrolling text reads correctly, a 4-digit cycling animation plays in order (1→2→3→4→1...). **Speed-byte semantics partially characterized**: larger byte = faster playback (monotonic), unit not yet quantified — see §4.6. Default 130 cycles a 4-frame animation in ~1 second. |
 
 ---
 
