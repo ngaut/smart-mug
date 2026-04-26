@@ -17,14 +17,28 @@ A four-act story in pixels:
                       whole-display inverse flash (2 frames).
     Coda  — STEADY:   The longest section. With the letters formed,
                       a sequence of distinct operational beats:
+                        • elastic scale (Tiny → Medium → Large with
+                          halo apex → Medium → Tiny — TiDB's
+                          signature elastic scaling demonstrated)
                         • data wave L→R (data flowing through)
                         • heartbeat × 2 (the system is alive)
                         • T-I-D-B announce + full-word halo (identity)
                         • sonar ping (concentric rings, broadcasting)
                         • data packets (concurrent multi-stream traffic)
+                        • vertical scan (top-to-bottom system readout)
+                        • scatter & reform (letters explode outward,
+                          then magnetically pull back to formation)
+                        • 3D rotation (letters spin around the vertical
+                          axis: full → edge-on → mirrored → back)
+                        • glitch & self-heal (random pixel corruption
+                          inside the letters, recovery halo flash —
+                          fault tolerance demonstrated)
+                        • constellation (T-I-D-B as ring nodes with
+                          diagonal edges zigzagging across — topology)
                         • hold + collapse back to the Act-I cluster
-                      Each beat says something different — no
-                      mirror duplications, no padding.
+                      Each beat occupies a different visual axis or
+                      motif — horizontal, radial, point-particles,
+                      vertical, explosive — no mirror duplications.
 
 The TIDB letters are EARNED by the narrative — they're the answer to
 the question the animation poses (will the system survive the load?),
@@ -43,13 +57,79 @@ from PIL import Image
 
 W, H = 48, 12
 
-# 7-row font for the TIDB target
+# 7-row font for the TIDB target (medium / canonical size)
 GLYPHS_7 = {
     'T': ["█████", "··█··", "··█··", "··█··", "··█··", "··█··", "··█··"],
     'I': ["█",     "·",     "█",     "█",     "█",     "█",     "█"],
     'D': ["████·", "█···█", "█···█", "█···█", "█···█", "█···█", "████·"],
     'B': ["████·", "█···█", "████·", "█···█", "█···█", "█···█", "████·"],
 }
+
+# Five font sizes to make the scale beat read clearly as continuous
+# growth. Each size adds ~1-2 rows so the bell curve has visible
+# intermediate steps instead of jump-cutting between extremes.
+
+# 4-row tiny font (13 wide × 4 tall)
+GLYPHS_TINY = {
+    'T': ["███", "·█·", "·█·", "·█·"],
+    'I': ["█",   "·",   "█",   "█"],
+    'D': ["██·", "█·█", "█·█", "██·"],
+    'B': ["██·", "███", "██·", "███"],
+}
+
+# 5-row small font (16 wide × 5 tall)
+GLYPHS_SMALL = {
+    'T': ["████", "·██·", "·██·", "·██·", "·██·"],
+    'I': ["█",    "·",    "█",    "█",    "█"],
+    'D': ["███·", "█··█", "█··█", "█··█", "███·"],
+    'B': ["███·", "█··█", "███·", "█··█", "███·"],
+}
+
+# 8-row big font (21 wide × 8 tall)
+GLYPHS_BIG = {
+    'T': ["██████", "··██··", "··██··", "··██··",
+          "··██··", "··██··", "··██··", "··██··"],
+    'I': ["█", "·", "█", "█", "█", "█", "█", "█"],
+    'D': ["█████·", "█····█", "█····█", "█····█",
+          "█····█", "█····█", "█····█", "█████·"],
+    'B': ["█████·", "█····█", "█····█", "█████·",
+          "█····█", "█····█", "█····█", "█████·"],
+}
+
+# 10-row large font (25 wide × 10 tall) — apex of the bell curve
+GLYPHS_LARGE = {
+    'T': ["███████", "···█···", "···█···", "···█···", "···█···",
+          "···█···", "···█···", "···█···", "···█···", "···█···"],
+    'I': ["█", "·", "█", "█", "█", "█", "█", "█", "█", "█"],
+    'D': ["██████·", "█·····█", "█·····█", "█·····█", "█·····█",
+          "█·····█", "█·····█", "█·····█", "█·····█", "██████·"],
+    'B': ["██████·", "█·····█", "█·····█", "██████·", "█·····█",
+          "█·····█", "█·····█", "█·····█", "█·····█", "██████·"],
+}
+
+
+def render_tidb_at_size(glyphs):
+    """Render TIDB centered on screen using the given glyph dict.
+    Auto-centers vertically and horizontally. Used by the scale beat."""
+    text = "TIDB"
+    widths = [max(len(r) for r in glyphs[c]) for c in text]
+    total_w = sum(widths) + len(widths) - 1
+    height = max(len(glyphs[c]) for c in text)
+    x0 = (W - total_w) // 2
+    y0 = (H - height) // 2
+    f = blank()
+    x = x0
+    for ch in text:
+        g = glyphs[ch]
+        gw = max(len(r) for r in g)
+        for ry, row in enumerate(g):
+            for rx in range(gw):
+                if rx < len(row) and row[rx] == '█':
+                    px, py = x + rx, y0 + ry
+                    if 0 <= px < W and 0 <= py < H:
+                        f.putpixel((px, py), 1)
+        x += gw + 1
+    return f
 
 
 def tidb_target_pixels():
@@ -401,6 +481,65 @@ def build_frames():
     for toggle in hold_a_toggles:
         frames.append(render_tidb(toggle))
 
+    # Scale out / scale in — TIDB grows Tiny → Medium → Large with
+    # a halo punctuation at the apex, then shrinks back. Demonstrates
+    # elastic scaling, TiDB's signature feature. The size sequence
+    # forms a bell curve so growth and recall are symmetric.
+    def add_halo(src):
+        out = src.copy()
+        for y in range(H):
+            for x in range(W):
+                if src.getpixel((x, y)):
+                    if x + 1 < W:
+                        out.putpixel((x + 1, y), 1)
+                    if y + 1 < H:
+                        out.putpixel((x, y + 1), 1)
+        return out
+
+    # Five-step bell curve, each size held long enough to register on
+    # the eye. The progression Tiny→Small→Medium→Big→Large is gradual
+    # (~1-2 rows per step) so growth reads as continuous expansion,
+    # not a jump-cut between two extremes.
+    scale_steps = [
+        # Growing
+        (GLYPHS_TINY,  False, (0, 0)),
+        (GLYPHS_TINY,  False, (W - 1, 0)),         # hold tiny 2 frames
+        (GLYPHS_SMALL, False, (0, H - 1)),
+        (GLYPHS_SMALL, False, (W - 1, H - 1)),     # hold small 2 frames
+        (GLYPHS_7,     False, (0, 0)),
+        (GLYPHS_7,     False, (W - 1, 0)),         # hold medium 2 frames
+        (GLYPHS_BIG,   False, (0, H - 1)),
+        (GLYPHS_BIG,   False, (W - 1, H - 1)),     # hold big 2 frames
+        (GLYPHS_LARGE, False, (0, 0)),
+        (GLYPHS_LARGE, False, (W - 1, 0)),         # hold large 2 frames
+        # Apex
+        (GLYPHS_LARGE, True,  (0, H - 1)),
+        (GLYPHS_LARGE, True,  (W - 1, H - 1)),     # halo apex 2 frames
+        # Shrinking
+        (GLYPHS_LARGE, False, (0, 0)),
+        (GLYPHS_BIG,   False, (W - 1, 0)),
+        (GLYPHS_BIG,   False, (0, H - 1)),         # hold big briefly
+        (GLYPHS_7,     False, (W - 1, H - 1)),
+        (GLYPHS_7,     False, (0, 0)),             # hold medium briefly
+        (GLYPHS_SMALL, False, (W - 1, 0)),
+        (GLYPHS_SMALL, False, (0, H - 1)),         # hold small briefly
+        (GLYPHS_TINY,  False, (W - 1, H - 1)),
+        (GLYPHS_TINY,  False, (0, 0)),             # land tiny 2 frames
+    ]
+    for glyphs, halo, toggle in scale_steps:
+        f = render_tidb_at_size(glyphs)
+        if halo:
+            f = add_halo(f)
+        # Toggle a corner to guarantee frame uniqueness for the GIF
+        # encoder (consecutive same-size frames would otherwise dedupe).
+        cur = f.getpixel(toggle)
+        f.putpixel(toggle, 0 if cur else 1)
+        frames.append(f)
+
+    # Brief settle — let the cluster return to canonical size before
+    # the data sweep starts.
+    frames.append(render_tidb((W - 1, H - 1)))
+
     # Data sweep L→R through the cluster
     sweep_lo = letters_x_min - 4
     sweep_hi = letters_x_max + 4
@@ -543,6 +682,234 @@ def build_frames():
         for (x, y, _) in packets:
             if 0 <= x < W and 0 <= y < H:
                 f.putpixel((x, y), 1)
+        frames.append(f)
+
+    # Brief hold so packets clear before the next motif
+    frames.append(render_tidb((0, H - 1)))
+
+    # Vertical scan — a 2-row bright bar sweeps top-to-bottom across
+    # the screen. Adds the vertical axis (everything above is
+    # horizontal sweep / radial / particles). Reads as "system
+    # readout" — the cup is scanning itself. ~6 frames.
+    for scan_y in range(0, H, 2):
+        f = render_tidb()
+        for x in range(W):
+            for dy in (0, 1):
+                yy = scan_y + dy
+                if 0 <= yy < H:
+                    f.putpixel((x, yy), 1)
+        frames.append(f)
+
+    # Brief hold after scan reaches bottom
+    frames.append(render_tidb((W - 1, H - 1)))
+
+    # Scatter & reform — every TIDB letter pixel detaches with an
+    # outward velocity proportional to its distance from screen
+    # center, drifts outward (4 frames), then is magnetically pulled
+    # back to its target position (6 frames). High-energy explosion
+    # + reformation — visually distinct from Act II crisis (which
+    # was a small jostled cluster) and from heartbeat (full-screen
+    # invert, no particle motion). ~10 frames.
+    scatter_particles = []
+    cx, cy = W / 2, H / 2
+    for (tx, ty) in letter_pixels:
+        dx, dy = tx - cx, ty - cy
+        dist = max(0.5, math.hypot(dx, dy))
+        # Outward unit vector × explosion speed
+        vx = dx / dist * 1.6
+        vy = dy / dist * 1.2
+        scatter_particles.append({
+            'x': float(tx), 'y': float(ty),
+            'vx': vx, 'vy': vy,
+            'tx': tx, 'ty': ty,
+        })
+
+    # Phase 1: scatter outward, with mild damping
+    for _ in range(4):
+        f = blank()
+        for p in scatter_particles:
+            p['x'] += p['vx']
+            p['y'] += p['vy']
+            p['vx'] *= 0.92
+            p['vy'] *= 0.92
+            xi, yi = int(round(p['x'])), int(round(p['y']))
+            if 0 <= xi < W and 0 <= yi < H:
+                f.putpixel((xi, yi), 1)
+        # Uniqueness toggle in a position the explosion is unlikely
+        # to land on (it's outward-only motion from letter region).
+        f.putpixel((0, 0), 1 if not f.getpixel((0, 0)) else 0)
+        frames.append(f)
+
+    # Phase 2: magnetic recall to targets, ramping pull strength so
+    # they accelerate home as they get closer. The snap radius
+    # widens each frame, and the last frame hard-snaps every
+    # particle to guarantee a clean TIDB at the end of the beat.
+    REFORM_FRAMES = 6
+    for k in range(REFORM_FRAMES):
+        f = blank()
+        pull = 0.22 + k * 0.06
+        snap_r = 1.0 + k * 0.5
+        is_last = (k == REFORM_FRAMES - 1)
+        for p in scatter_particles:
+            if is_last:
+                p['x'], p['y'] = float(p['tx']), float(p['ty'])
+            else:
+                p['vx'] = p['vx'] * 0.7 + (p['tx'] - p['x']) * pull
+                p['vy'] = p['vy'] * 0.7 + (p['ty'] - p['y']) * pull
+                p['x'] += p['vx']
+                p['y'] += p['vy']
+                if math.hypot(p['tx'] - p['x'], p['ty'] - p['y']) < snap_r:
+                    p['x'], p['y'] = float(p['tx']), float(p['ty'])
+                    p['vx'] = p['vy'] = 0.0
+            xi, yi = int(round(p['x'])), int(round(p['y']))
+            if 0 <= xi < W and 0 <= yi < H:
+                f.putpixel((xi, yi), 1)
+        # Different uniqueness corner per frame
+        corner = [(W - 1, 0), (0, H - 1), (W - 1, H - 1), (0, 0), (W - 1, 0), (0, H - 1)][k]
+        f.putpixel(corner, 1 if not f.getpixel(corner) else 0)
+        frames.append(f)
+
+    # 3D rotation — simulates the TIDB letters spinning around a
+    # vertical axis through screen center. We approximate the
+    # projection with a horizontal squash factor s ∈ [-1, 1]:
+    # s=1.0 is the canonical view, s=0 is the "edge-on" view (a
+    # single vertical line where every letter pixel collapses to
+    # the center column), s=-1.0 is the fully-mirrored back. As s
+    # decreases, multiple letter columns collapse into the same
+    # output column — the OR-merging produces the visual squashing
+    # that reads as rotation. ~9 frames covering a full 360°.
+    cx_axis = W // 2  # rotation axis = horizontal center
+
+    def render_tidb_rotated(s):
+        """Render TIDB squashed by horizontal factor s."""
+        f = blank()
+        for (tx, ty) in letter_pixels:
+            offset = tx - cx_axis
+            new_x = int(round(cx_axis + offset * s))
+            if 0 <= new_x < W and 0 <= ty < H:
+                f.putpixel((new_x, ty), 1)
+        return f
+
+    rotation_steps = [1.0, 0.6, 0.0, -0.6, -1.0, -0.6, 0.0, 0.6, 1.0]
+    for i, s in enumerate(rotation_steps):
+        f = render_tidb_rotated(s)
+        # Uniqueness toggle in a corner that the squashed letters
+        # don't reach (letters live near center column).
+        toggle = [(0, 0), (W - 1, 0), (0, H - 1), (W - 1, H - 1)][i % 4]
+        f.putpixel(toggle, 1 if not f.getpixel(toggle) else 0)
+        frames.append(f)
+
+    # Glitch / self-heal — random pixel corruption builds inside the
+    # letter region, peaks, recedes, then a recovery halo flashes
+    # before TIDB returns to clean. Says "Byzantine fault tolerance":
+    # the brand survives noise. ~6 frames.
+    #
+    # Visual: each glitch frame XORs a set of random pixels in the
+    # letter bounding box — some letter pixels go off (corruption),
+    # some empty pixels go on (noise). Across the 4 corruption
+    # frames intensity rises (10 → 18) then falls (12 → 5) so the
+    # glitch reads as a transient disturbance, not a steady state.
+    glitch_rng = random.Random(99)
+    glitch_x_range = (letters_x_min - 2, letters_x_max + 2)
+    glitch_y_range = (1, H - 2)
+    intensities = [10, 18, 12, 5]
+    for intensity in intensities:
+        f = render_tidb()
+        flipped = set()
+        while len(flipped) < intensity:
+            gx = glitch_rng.randint(*glitch_x_range)
+            gy = glitch_rng.randint(*glitch_y_range)
+            flipped.add((gx, gy))
+        for (x, y) in flipped:
+            if 0 <= x < W and 0 <= y < H:
+                cur = f.getpixel((x, y))
+                f.putpixel((x, y), 0 if cur else 1)
+        frames.append(f)
+
+    # Recovery halo — letters snap back with a halo flash, signaling
+    # "we're whole again."
+    recovery = render_tidb()
+    for (tx, ty) in letter_pixels:
+        if tx + 1 < W:
+            recovery.putpixel((tx + 1, ty), 1)
+        if ty + 1 < H:
+            recovery.putpixel((tx, ty + 1), 1)
+    frames.append(recovery)
+    # Clean held TIDB so the eye registers full recovery
+    frames.append(render_tidb((W - 1, H - 1)))
+
+    # Constellation graph — TIDB letters as nodes in a ring topology.
+    # Anchor points alternate top/bottom of the screen (above and below
+    # the letters) so the connecting lines zigzag diagonally across,
+    # passing *through* the letters where they intersect. Says
+    # "distributed cluster topology" — the system reveals its
+    # structure after reforming. ~8 frames.
+    node_positions = [
+        (16, 0),    # T anchor (above T center)
+        (20, 11),   # I anchor (below I)
+        (24, 0),    # D anchor (above D center)
+        (30, 11),   # B anchor (below B center)
+    ]
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]  # ring T→I→D→B→T
+
+    def bresenham(x0, y0, x1, y1):
+        """Yield (x, y) pixels along the line from (x0,y0) to (x1,y1)."""
+        dx, dy = abs(x1 - x0), abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
+        while True:
+            yield (x0, y0)
+            if x0 == x1 and y0 == y1:
+                return
+            e2 = err * 2
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
+
+    def draw_line(img, a, b):
+        for (x, y) in bresenham(a[0], a[1], b[0], b[1]):
+            if 0 <= x < W and 0 <= y < H:
+                img.putpixel((x, y), 1)
+
+    def draw_nodes(img):
+        for (nx, ny) in node_positions:
+            if 0 <= nx < W and 0 <= ny < H:
+                img.putpixel((nx, ny), 1)
+
+    # Build 1 → 2 → 3 → 4 edges in sequence
+    for n_edges in range(1, 5):
+        f = render_tidb()
+        draw_nodes(f)
+        for ei in range(n_edges):
+            a, b = edges[ei]
+            draw_line(f, node_positions[a], node_positions[b])
+        frames.append(f)
+
+    # Hold the closed ring: 2 frames with corner toggle for uniqueness
+    for h in range(2):
+        f = render_tidb()
+        draw_nodes(f)
+        for a, b in edges:
+            draw_line(f, node_positions[a], node_positions[b])
+        toggle = (0, 0) if h == 0 else (W - 1, H - 1)
+        f.putpixel(toggle, 1 if not f.getpixel(toggle) else 0)
+        frames.append(f)
+
+    # Fade — dotted edges (alternate pixels), 2 frames at offset 0/1
+    for fade_step in range(2):
+        f = render_tidb()
+        draw_nodes(f)
+        for a, b in edges:
+            for i, (lx, ly) in enumerate(bresenham(
+                node_positions[a][0], node_positions[a][1],
+                node_positions[b][0], node_positions[b][1],
+            )):
+                if (i + fade_step) % 2 == 0 and 0 <= lx < W and 0 <= ly < H:
+                    f.putpixel((lx, ly), 1)
         frames.append(f)
 
     # Hold D / settled: 3 frames before the collapse begins
