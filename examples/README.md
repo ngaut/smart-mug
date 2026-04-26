@@ -37,48 +37,48 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-A flowing architectural diagram of TiDB Next-Gen's compute/storage
-separation. Animation carries the "upstream → downstream"
-directionality so no brand label is needed on the left.
-
-Layout (read left to right):
+A telemetry dashboard for TiDB Next-Gen. **Stops trying to be an
+architecture diagram** (which doesn't fit 48×12) and instead shows
+what the architecture delivers: enormous, climbing scale.
 
 ```
-┌───────────────────────┬──────────────────┬───────────┐
-│   incoming workload   │   compute nodes  │    S3     │
-│   (4 dot tracks       │   (scaling 1→8)  │           │
-│    flowing rightward) │                  │ [cylinder]│
-└───────────────────────┴──────────────────┴───────────┘
-   cols 0-14                cols 16-31      cols 33-47
+   ┌─────────────────────────────┐
+   │           1M                │     ← climbing magnitude (8 rows tall)
+   │                             │
+   │                             │
+   ├─────────────────────────────┤
+   │ ▓▓▓▓▓▓▓▓▓░░░░░░░ 65%        │     ← load bar (fills as N climbs)
+   └─────────────────────────────┘
 ```
 
-**Three coordinated motions, ONE narrative.** Earlier "busy" drafts
-combined unrelated motions (drifting waves, flicker patterns, halos);
-this version makes everything serve the same story:
+The counter ticks **1K → 10K → 100K → 1M → 10M → ∞**, each value
+held for ~1 second. The load bar fills proportionally on each step
+(5% → 20% → 45% → 65% → 85% → 100%). On the ∞ frame the whole
+display flashes inverse, then the loop resets.
 
-- **Left third** — 4 horizontal client tracks with dots flowing
-  rightward at staggered timing. The active-track count grows with
-  the scale level, so visible load matches cluster capacity.
-- **Middle third** — N compute nodes scaling 1 → 2 → 4 → 8 with a
-  halo flash on each scale-up.
-- **Right third** — "S3" label and a static cylinder outline. The
-  *only* part of the canvas that doesn't change. That stillness is
-  the architectural point.
+40 frames at speed=200 ≈ 6.4 s per loop. Loop reads instantly as
+"system handling massive load and keeping up".
 
-The eye reads motion direction (left-to-right) automatically as
-data flow, so the layout's directionality is conveyed without a
-text label. The "S3" label remains because the rightmost rectangle
-needs to be unambiguous.
+Design history (long version):
 
-40 frames at speed=200 ≈ 6.4 s per loop. No reveal phase — the
-architecture establishes itself through the flowing motion from
-frame 0.
+- **v1**: 4-tier diagram with drifting wave + flicker + trails. Too
+  busy.
+- **v2**: Static 2-tier slab. Too abstract without prior context.
+- **v3**: Pure scrolling text. Too thin, no architectural content.
+- **v4**: Labeled diagram with `×N` counter and animated arrows.
+  Cluttered.
+- **v5**: Decluttered diagram (TIDB + nodes + S3 + cylinder). Better,
+  but the static labels were doing a lot of work.
+- **v6**: Removed TIDB label, used animated incoming-workload tracks
+  in its place. Better directionality but still a diagram.
+- **v7 (this version)**: Backed up two levels and reframed entirely.
+  A 48×12 LED matrix can't render multi-tier architecture, but it
+  can render a *climbing magnitude with a load bar*. That's the
+  shape of the medium. Numbers and bars need no decoding; the
+  dashboard reads at a glance.
 
-Design history (so future-you doesn't repeat the iterations):
-v1 (busy diagrams), v2 (abstract slabs), v3 (pure text marquee),
-v4 (labeled diagram with counter and arrows), v5 (decluttered
-labeled diagram), v6 (this version: labels removed where animation
-can do the same job).
+The lesson: **match the visualization to the canvas's geometry, not
+to the prose description of the system**.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
