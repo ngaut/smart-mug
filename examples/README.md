@@ -37,49 +37,48 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-A **labeled architecture diagram with animated data flow**, conveying
-TiDB Next-Gen's compute/storage-separated design.
+A flowing architectural diagram of TiDB Next-Gen's compute/storage
+separation. Animation carries the "upstream → downstream"
+directionality so no brand label is needed on the left.
 
 Layout (read left to right):
 
 ```
-┌─────────────┬──────────────────────────┬───────────┐
-│   TIDB      │     N compute nodes      │    S3     │
-│   ×N        │     (dots scaling)       │           │
-│             ▶─── data flow arrows ───▶ │ [cylinder]│
-└─────────────┴──────────────────────────┴───────────┘
-   cols 0-14         cols 16-31            cols 33-47
+┌───────────────────────┬──────────────────┬───────────┐
+│   incoming workload   │   compute nodes  │    S3     │
+│   (4 dot tracks       │   (scaling 1→8)  │           │
+│    flowing rightward) │                  │ [cylinder]│
+└───────────────────────┴──────────────────┴───────────┘
+   cols 0-14                cols 16-31      cols 33-47
 ```
 
-The "TIDB" and "S3" labels (in a 7-row bold hand-pixel font) anchor
-what each part is — the architecture reads at a glance even without
-prior context. The "×N" counter below TIDB and the visible node
-count both grow (×1 → ×2 → ×4 → ×8) so the viewer sees the *number*
-and the *visual* agreeing. The S3 cylinder on the right doesn't
-change. **That side-by-side IS the architectural punchline of
-compute/storage separation.**
+**Three coordinated motions, ONE narrative.** Earlier "busy" drafts
+combined unrelated motions (drifting waves, flicker patterns, halos);
+this version makes everything serve the same story:
 
-Three phases (~7 s loop at speed=200):
+- **Left third** — 4 horizontal client tracks with dots flowing
+  rightward at staggered timing. The active-track count grows with
+  the scale level, so visible load matches cluster capacity.
+- **Middle third** — N compute nodes scaling 1 → 2 → 4 → 8 with a
+  halo flash on each scale-up.
+- **Right third** — "S3" label and a static cylinder outline. The
+  *only* part of the canvas that doesn't change. That stillness is
+  the architectural point.
 
-1. **Reveal** — TIDB label types in, S3 types in, storage cylinder
-   fills. Architecture establishes itself.
-2. **Scale-out** — ×1 → ×2 → ×4 → ×8 with halo flashes on new
-   nodes. Counter increments. Data-flow arrows pulse left → right
-   between phases.
-3. **Sustained throughput** — at full ×8 scale, dots continuously
-   stream from compute nodes to the storage cylinder.
+The eye reads motion direction (left-to-right) automatically as
+data flow, so the layout's directionality is conveyed without a
+text label. The "S3" label remains because the rightmost rectangle
+needs to be unambiguous.
 
-~33 frames; well within the 255-frame protocol limit.
+40 frames at speed=200 ≈ 6.4 s per loop. No reveal phase — the
+architecture establishes itself through the flowing motion from
+frame 0.
 
-Design history note: earlier drafts oscillated between *too busy*
-(drifting wavy storage line, flicker patterns, packet trails all
-competing for attention) and *too thin* (pure scrolling text with
-no architectural content). An intermediate version added a "×N"
-counter and animated data-flow arrows, but those turned out to be
-redundant — the visible node count IS the counter, and the static
-labeled layout already implies the data flow direction. The current
-version strips back to four elements: TIDB label, scaling nodes,
-S3 label, cylinder outline. Subtraction wins on tiny canvases.
+Design history (so future-you doesn't repeat the iterations):
+v1 (busy diagrams), v2 (abstract slabs), v3 (pure text marquee),
+v4 (labeled diagram with counter and arrows), v5 (decluttered
+labeled diagram), v6 (this version: labels removed where animation
+can do the same job).
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
