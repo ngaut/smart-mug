@@ -94,6 +94,16 @@ class Mutex {
 }
 
 class BLEManager {
+  // Auto-screen-off duration presets — match the official APK's picker
+  // (`LanguagePack.autoStandby.dataList`). See setAutoOff() for usage.
+  static AUTO_OFF_CODES = {
+    0: "always on",
+    1: "30 seconds",
+    2: "1 minute",
+    3: "3 minutes",
+    4: "5 minutes",
+  };
+
   constructor() {
     this.device = null;
     this.server = null;
@@ -340,26 +350,28 @@ class BLEManager {
   }
 
   /**
-   * Set the cup's auto-screen-off feature flag.
+   * Set the cup's auto-screen-off duration preset.
    *
-   * Frame: FF 55 07 00 02 27 <byte>. Empirically (probed against
-   * SGUAI-C3 fw 1.6) this byte is a *boolean*, not a seconds counter
-   * as the protocol spec originally implied: any non-zero value reads
-   * back as 1, only 0 reads back as 0.
+   * Frame: FF 55 07 00 02 27 <code>, where <code> is one of five
+   * firmware presets matching the official app's "自动熄屏" picker.
+   * Codes outside 0..4 are silently rejected by fw 1.6.
    *
-   *   setAutoOff(0)  → auto-off disabled (display stays alive)
-   *   setAutoOff(1)  → auto-off enabled (firmware default)
+   *   0 → 常亮 (always on, no auto-off)
+   *   1 → 30 seconds
+   *   2 → 1 minute
+   *   3 → 3 minutes
+   *   4 → 5 minutes
    *
-   * Side effect: with the flag disabled, the cup may stop appearing
+   * Side effect: with code 0 (always on), the cup may stop appearing
    * in fresh BLE scans while it's actively driving the panel
    * (PROTOCOL_SPEC.md §4.7).
    */
-  async setAutoOff(value) {
+  async setAutoOff(code) {
     if (!this.server) throw new Error("Not connected to device");
-    if (!Number.isInteger(value) || value < 0 || value > 255) {
-      throw new Error("value must fit in one byte (0..255)");
+    if (!Number.isInteger(code) || code < 0 || code > 4) {
+      throw new Error(`code must be 0..4 (got ${code})`);
     }
-    const command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x27, value];
+    const command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x27, code];
     const unlock = await this._mutex.acquire();
     try {
       try {
@@ -375,7 +387,7 @@ class BLEManager {
     }
   }
 
-  // Read the auto-screen-off flag (0 = disabled, 1 = enabled).
+  // Read the auto-screen-off duration code (0..4). See setAutoOff.
   async readAutoOff() {
     const resp = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x27, 0x00]);
     return resp[resp.length - 1];

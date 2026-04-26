@@ -390,23 +390,33 @@ class BLEManager:
         resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x02, 0x00])
         return resp[-1]
 
-    async def set_auto_off(self, value):
-        """Set the cup's auto-screen-off feature flag.
+    # Auto-screen-off duration codes — match the official APK's picker.
+    # Codes outside 0..4 are silently rejected by firmware fw 1.6.
+    AUTO_OFF_CODES = {
+        0: "always on",
+        1: "30 seconds",
+        2: "1 minute",
+        3: "3 minutes",
+        4: "5 minutes",
+    }
 
-        Frame: ``FF 55 07 00 02 27 <byte>``. Empirically (probed against
-        SGUAI-C3 fw 1.6, 2026-04), this byte is a **boolean**, not a
-        seconds counter as the original reverse-engineering inferred:
-        any non-zero value reads back as ``1``, only ``0`` reads back as
-        ``0``. So:
+    async def set_auto_off(self, code):
+        """Set the cup's auto-screen-off duration preset.
 
-          * ``set_auto_off(0)`` → auto-off disabled (display stays alive)
-          * ``set_auto_off(1)`` → auto-off enabled (firmware default)
+        Frame: ``FF 55 07 00 02 27 <code>``, where ``<code>`` is one of
+        the five firmware presets (0=always on, 1=30 s, 2=1 m, 3=3 m,
+        4=5 m). The earlier "boolean" interpretation was wrong: the
+        firmware accepts five discrete codes and silently rejects
+        anything else. See PROTOCOL_SPEC.md §4.7 for the full table.
 
-        The duration when enabled is firmware-fixed; you cannot set it.
+        :param code: integer 0..4 — see :py:attr:`AUTO_OFF_CODES`.
         """
-        if not 0 <= value <= 255:
-            raise ValueError("value must fit in one byte (0..255)")
-        command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x27, value]
+        if not isinstance(code, int) or code not in self.AUTO_OFF_CODES:
+            raise ValueError(
+                f"code must be one of {sorted(self.AUTO_OFF_CODES)} "
+                f"(got {code!r})"
+            )
+        command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x27, code]
         async with self._lock:
             try:
                 await self._execute_locked(command, timeout=10.0)
@@ -417,10 +427,10 @@ class BLEManager:
         return True
 
     async def read_auto_off(self):
-        """Read the current auto-screen-off flag (0=disabled, 1=enabled).
+        """Read the current auto-screen-off duration code (0..4).
 
-        See :py:meth:`set_auto_off` — despite the protocol spec calling
-        this "seconds", probing showed it's actually a boolean.
+        See :py:meth:`set_auto_off` and :py:attr:`AUTO_OFF_CODES` for
+        the human-readable label of each code.
         """
         resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x27, 0x00])
         return resp[-1]
@@ -814,41 +824,51 @@ async def cmd_mode(args):
 
 
 async def cmd_auto_off(args):
-    """Set or read the auto-screen-off boolean flag.
+    """Set or read the auto-screen-off duration preset.
 
-    The 0x27 byte is empirically a boolean (any non-zero stores as 1):
-      auto-off on  | enable  | 1   → auto-off enabled (firmware default)
-      auto-off off | disable | 0   → auto-off disabled (keep display alive)
-      auto-off                     → read current value (0 or 1)
+    The cup supports five firmware presets matching the official app's
+    "自动熄屏" picker. Friendly names accepted alongside numeric codes:
+
+      auto-off                     → read current preset
+      auto-off always | on | 0     → 常亮 (display always on)
+      auto-off 30s    | 1          → 30 seconds
+      auto-off 1m     | 2          → 1 minute
+      auto-off 3m     | 3          → 3 minutes
+      auto-off 5m     | 4          → 5 minutes
     """
+    name_to_code = {
+        "always": 0, "on": 0, "alwayson": 0, "always-on": 0,
+        "30s": 1, "30sec": 1, "30seconds": 1,
+        "1m": 2, "1min": 2, "1minute": 2,
+        "3m": 3, "3min": 3, "3minutes": 3,
+        "5m": 4, "5min": 4, "5minutes": 4,
+    }
     arg = _first_positional(args)
     try:
         async with connected_manager(args) as m:
             if arg is None:
-                current = await m.read_auto_off()
-                state = "ENABLED (display sleeps)" if current else "DISABLED (display stays on)"
-                print(f"Auto-off: {current} — {state}")
+                code = await m.read_auto_off()
+                label = BLEManager.AUTO_OFF_CODES.get(code, f"unknown code {code}")
+                print(f"Auto-off: code {code} — {label}")
                 return 0
 
-            arg_lower = arg.lower()
-            if arg_lower in ("on", "enable", "enabled", "true", "1"):
-                value = 1
-            elif arg_lower in ("off", "disable", "disabled", "false", "0"):
-                value = 0
+            key = arg.lower().replace(" ", "").replace("_", "")
+            if key in name_to_code:
+                code = name_to_code[key]
             else:
                 try:
-                    value = int(arg)
+                    code = int(arg)
                 except ValueError:
-                    print(f"Error: expected on/off/enable/disable or 0/1 (got {arg!r})")
+                    print(f"Error: expected one of {sorted(set(name_to_code))} "
+                          f"or a code 0..4 (got {arg!r})")
                     return 1
-                if not 0 <= value <= 255:
-                    print(f"Error: numeric value must be 0..255 (got {value})")
+                if code not in BLEManager.AUTO_OFF_CODES:
+                    print(f"Error: code must be 0..4 (got {code})")
                     return 1
 
-            await m.set_auto_off(value)
-            stored = 1 if value else 0
-            state = "ENABLED (display will sleep)" if stored else "DISABLED (display stays on)"
-            print(f"✓ Auto-off → {state}")
+            await m.set_auto_off(code)
+            label = BLEManager.AUTO_OFF_CODES[code]
+            print(f"✓ Auto-off → code {code} ({label})")
         return 0
     except Exception as e:
         print(f"Error: {e}")
@@ -1093,7 +1113,8 @@ Commands:
                                               Auto-disables screen sleep by default
                                               so the loop plays continuously.
   read [field ...] [--rescan]                 Read version / temperature / battery
-  auto-off [on|off] [--rescan]                Set or read screen auto-off flag
+  auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
+                                              presets: always | 30s | 1m | 3m | 5m
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
   clear-cache                                 Forget cached device
 

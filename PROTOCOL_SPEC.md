@@ -119,7 +119,7 @@ Control"; reverse-engineering shows they are simply read vs. write — the
 | `0x23` | ✔ | ✔ | Display motion mode (0=static, 1=scroll→, 2=scroll←, 3=flash) |
 | `0x25` | — | ✔ | **Static** bitmap upload (72-byte payload) |
 | `0x26` | — | ✔ | **Animation** upload (prologue + per-frame, see §4.6) |
-| `0x27` | ✔ | ✔ | Auto-screen-off flag (boolean — see §4.7) |
+| `0x27` | ✔ | ✔ | Auto-screen-off duration code (0..4, see §4.7) |
 
 ---
 
@@ -410,41 +410,51 @@ Frame 2:  FF 55 50 00 02 26 02 82 <72 B>
 
 ---
 
-### 4.7 Auto-Screen-Off Flag (Function: 0x02 / 0x01, Command: 0x27)
+### 4.7 Auto-Screen-Off Duration Code (Function: 0x02 / 0x01, Command: 0x27)
 
-**Purpose:** Enable or disable the firmware's automatic screen-off
-behavior. When enabled (the firmware default), the LED matrix powers
-down after a brief idle period; when disabled, the display stays
-alive indefinitely.
+**Purpose:** Select one of five firmware-provided auto-screen-off
+presets. The official `net.sguai.app` Android app exposes these via
+a "自动熄屏" (Auto Screen-Off) picker; the wire-level byte is the
+selected option's index.
 
-**Empirical note:** the original v2.0 reverse-engineering inferred a
-`seconds` duration for this byte. Probing on SGUAI-C3 fw 1.6 (2026-04)
-showed it is actually a **boolean**: any non-zero value reads back as
-`1`, only `0` reads back as `0`. The duration when enabled is fixed
-in firmware and cannot be tuned through this command.
+**Duration code mapping** (extracted from APK
+`app-service.pretty.js:51542` + `sub-service.pretty.js:10536`,
+labels from the `LanguagePack.autoStandby.dataList`):
+
+| Code | Label (zh) | Meaning |
+|------|-----------|---------|
+| `0`  | 常亮       | Always on (no auto-off) |
+| `1`  | 30 秒钟    | 30 seconds |
+| `2`  | 1 分钟     | 1 minute |
+| `3`  | 3 分钟     | 3 minutes |
+| `4`  | 5 分钟     | 5 minutes |
+
+Codes outside `0..4` are silently rejected by the firmware (the
+stored value does not change). The earlier v2.1 docs claimed this
+byte was a boolean — that was wrong; probing values like `30` or
+`100` looked like they "stored as 1" only because they were rejected
+and the previous value happened to be `1`.
 
 **Set Frame:**
 ```
 Offset: 0    1    2    3    4    5    6
-Bytes:  FF   55   07   00   02   27   <flag>
+Bytes:  FF   55   07   00   02   27   <code>
 ```
-- `<flag>`: `0x00` to disable auto-off, any non-zero to enable.
+- `<code>`: `0..4` per the table above.
 
-**Read Frame:**
-```
-Offset: 0    1    2    3    4    5    6
-Bytes:  FF   55   07   00   01   27   00
-```
-- Response payload final byte: `0x00` (disabled) or `0x01` (enabled).
+**Read Frame:** the official APK uses a 6-byte read with no trailing
+data byte (`FF 55 06 00 01 27`), but the cup also accepts the 7-byte
+form (`FF 55 07 00 01 27 00`) we use for symmetry with the rest of
+the read commands. Last payload byte is the active code.
 
 **Use case:** for animation playback or always-on dashboard scenarios,
-send `set 0` once after connecting. Persistence across power cycles
-not verified — re-send after reconnects to be safe.
+send `set 0` (常亮) once after connecting. Persistence across power
+cycles not verified — re-send after reconnects to be safe.
 
-**Side effect (observed on fw 1.6):** with the flag disabled (always-on
-display), the cup may stop appearing in fresh BLE scans while it's
-actively driving the panel. Cached connect-by-address still works;
-plan for this when designing client reconnection logic.
+**Side effect (observed on fw 1.6):** with code `0` (always on), the
+cup may stop appearing in fresh BLE scans while it's actively driving
+the panel. Cached connect-by-address still works; plan for this when
+designing client reconnection logic.
 
 ---
 
@@ -517,7 +527,7 @@ exhaustion it surfaces an error to the user. Successful writes are paced
 | Set Static Image | `0x02` | `0x25` | 72 B bitmap | 78 (`0x4E`) | One frame |
 | Animation Prologue | `0x02` | `0x26` | `<count><speed>` | 8 | Begin N-frame animation |
 | Animation Frame | `0x02` | `0x26` | `<idx><speed>` + 72 B | 80 (`0x50`) | Store frame (×N) |
-| Set Auto-off | `0x02` | `0x27` | 1 B flag | 7 | 0=disabled (always on), nonzero=enabled |
+| Set Auto-off | `0x02` | `0x27` | 1 B code | 7 | Duration preset 0..4 (see §4.7) |
 
 ---
 
