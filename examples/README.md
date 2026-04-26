@@ -37,53 +37,48 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-**"Rising"** — an ambient animation. A drifting horizon line near
-the bottom; sparks rising from below, drifting horizontally as they
-ascend, dissolving at the top, continuously regenerating.
+**"Breath"** — a horizontal storage line through the middle of the
+display, with compute dots breathing in and out around it.
 
-No labels, no diagrams, no numbers. The image is meant to be
-beautiful at hand-holding distance, glanced at while sipping coffee,
-inviting someone to ask "what is that?" — at which point the
-TiDB-branded cup does the rest.
+```
+                       compute dots (breathing)
+       . . .  .  .  .  .  .  .  .  .  .  .  .
+     .   .  .  . .  .  .  .  . . .  . . . . .
+████████████████████████████████████████████████  ← storage
+     . . .  . . . .  . .  .  .  .  .  .  . . .
+       . . . . . . . . . . . . . . . . . . .
+                       compute dots (breathing)
+```
 
-What it implies, without stating:
+The storage line never moves, never blinks, never changes — every
+frame, every loop, forever. Above and below, the compute population
+expands from near-zero to ~50 dots, then contracts back, on an eased
+sin² curve. One full breath cycle ≈ 9 s at speed=200, close to a
+slow human breath rate. **The cup literally breathes with you.**
 
-- **Growth, scaling, infinity** — everything keeps rising
-- **Distribution** — many independent particles
-- **Architectural foundation** — the horizon as a floor
-- **Aliveness** — constant motion, never finished
+This is the *only* property of TiDB Next-Gen worth encoding on a
+hand-held LED at this scale: **ephemeral compute against permanent
+shared storage**. No labels, no diagrams, no counter — the metaphor
+is the entire content. The line is the axis of symmetry for the
+compute breath, so the eye sees that compute and storage are
+categorically different things: one persists, the other comes and
+goes.
 
-What it stops trying to do:
+55 frames after PIL dedup (60 generated). Long meditative loop
+suited to ambient viewing.
 
-- Teach distributed-systems architecture
-- Render labels for layers
-- Explain compute/storage separation
-- Be a slide-deck figure on a 48×12 LED matrix
+Design history — eight iterations to get here:
+v1 busy 4-tier diagram → v2 abstract slab → v3 scrolling text →
+v4 labeled diagram with counter → v5 decluttered diagram →
+v6 dropped TIDB label, animated workload tracks → v7 telemetry
+dashboard with climbing magnitudes → **v8 (this version)**.
 
-80 frames at speed=200 ≈ 13 s per loop. Long, meditative; designed
-for ambient viewing rather than instant comprehension.
-
-Design history (so future-you doesn't repeat the iterations):
-
-- **v1**: Busy 4-tier diagram with drifting wave + flicker + trails.
-- **v2**: Static 2-tier slab — too abstract without context.
-- **v3**: Pure scrolling text marquee — too thin.
-- **v4**: Labeled diagram with `×N` counter + animated arrows —
-  cluttered.
-- **v5**: Decluttered labeled diagram — readable but flat.
-- **v6**: Removed TIDB label, used animated workload tracks instead.
-- **v7**: Telemetry dashboard with climbing magnitude (1K → ∞).
-- **v8 (this version)**: Stopped trying to *teach* the architecture
-  on a coffee mug LED. The display's job is to be beautiful and
-  evocative; the physical cup is already TiDB-branded; the brand
-  meaning lives in the viewer's head, not in re-rendered pixels.
-  Particles rising from a horizon imply scale and aliveness without
-  stating them.
-
-The meta-lesson the iteration history teaches: **the medium has its
-own grammar**. A coffee mug LED is ambient art with a brand attached,
-not a teaching tool. Match the artifact to its medium, not to the
-prose description of the system it represents.
+The meta-lesson: **a coffee-mug LED can carry exactly one metaphor**,
+chosen for the *single distinctive property* of the system it
+represents. Versions 1–7 all tried to encode multiple architectural
+properties simultaneously and failed. The final cut picks one
+property — *ephemeral compute, permanent storage* — and shows nothing
+else.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 

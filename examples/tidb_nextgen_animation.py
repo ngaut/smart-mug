@@ -1,129 +1,141 @@
 #!/usr/bin/env python3
-"""TiDB Next-Gen animation for the SGUAI-C3 cup (48×12) — "Rising".
+"""TiDB Next-Gen animation for the SGUAI-C3 cup (48×12) — "Breath".
 
-Six previous iterations of this example all tried to render an
-architecture diagram on a coffee-mug LED matrix and got pushed back
-on for being busy, abstract, thin, or hard to read. This version
-abandons the architecture-diagram framing entirely.
+The single property that distinguishes TiDB Next-Gen from generic
+"distributed database" imagery is *ephemeral compute on a permanent
+shared-storage core*. Compute spins up on demand and back down to
+nothing; storage is the one thing that doesn't move.
 
-A coffee mug at hand-holding distance, glanced at while sipping, is
-never going to be a distributed-systems explainer. It IS great at
-being a small piece of beauty that someone notices and likes. So:
+Visual encoding of exactly that property:
 
-A horizon line near the bottom — the architectural floor. From below,
-small bright dots ("data" / "sparks" / call them what you want) rise
-up, drifting horizontally as they ascend, then fade at the top. No
-wordmark — the physical cup is already TiDB-branded; the LED
-animation is the ambient piece.
+  - A horizontal storage line through the middle of the display
+    (row 6, full width). It is permanent — every frame, every loop,
+    forever. It is the reference frame for everything else.
+  - Compute dots live in the rows above and below the line. Their
+    population breathes — expanding outward when "demand arrives,"
+    contracting back into the line when "demand passes." Each dot is
+    a compute instance; total count breathes between ~0 and ~50.
+  - The breath is eased (sin² shape), not linear: slow at the
+    extremes, fast through the middle, like real respiration.
+  - Top half and bottom half mirror each other, so the line is
+    visibly the axis of symmetry — reinforcing "storage is the
+    permanent center; compute is what comes and goes."
 
-What it implies, without stating:
-  - Scaling, growth, infinity (everything keeps rising)
-  - Distribution (many independent particles)
-  - Architecture (the horizon as foundation, particles as workload)
-  - Aliveness (constant motion, never finished)
+The display LITERALLY breathes, in sync with someone holding the cup.
 
-What it stops trying to do:
-  - Teach you the architecture's tiers
-  - Render labels for layers
-  - Explain compute/storage separation
-  - Be a slide-deck figure on a 48×12 LED matrix
-
-It's just nice to look at.
-
-~80 frames at speed=200, ~13 s loop.
+No labels, no counter, no text. The metaphor is the whole point and
+labels would only dilute it. 60 frames at speed=200 ≈ 9.6 s per
+breath cycle — close to a slow human breath rate.
 """
 
 from pathlib import Path
+import math
 import random
 
 from PIL import Image
 
 W, H = 48, 12
-
-HORIZON_ROW = 10  # the architectural "floor", near the bottom edge
-
-# Particle physics
-N_PARTICLES = 8       # how many sparks alive at any moment
-PARTICLE_RISE_SPEED = 0.35   # rows per frame (fractional)
-PARTICLE_DRIFT = 0.15        # max horizontal drift per frame
+STORAGE_ROW = 6
 
 
-def draw_horizon(img, frame_idx):
-    """Faint horizon line. Sparse dotted pattern that subtly drifts so
-    it feels more like a breathing surface than a hard line."""
-    pattern_offset = (frame_idx // 4) % 3
+def blank():
+    return Image.new('1', (W, H), 0)
+
+
+def draw_storage(img):
+    """The permanent storage line. Drawn identically every frame."""
     for x in range(W):
-        if (x + pattern_offset) % 3 == 0:
-            img.putpixel((x, HORIZON_ROW), 1)
+        img.putpixel((x, STORAGE_ROW), 1)
 
 
-class Particle:
-    """A single rising spark. Floats up from the horizon, drifts a bit
-    horizontally, fades at the top by being culled and respawned."""
+def compute_population_for(t):
+    """Return the desired *number* of compute dots at normalized time
+    t ∈ [0, 1] within one breath cycle. sin² gives the eased breath
+    curve: slow near extremes, fast through midpoints."""
+    # Two breaths per loop = sin(t * 2π) for one full inhale-exhale.
+    # We use sin² so we get a positive curve peaking once per breath.
+    # Then scale to a peak population.
+    peak = 50  # max compute instances at full inhale
+    return int(peak * (math.sin(math.pi * t) ** 2))
 
-    def __init__(self, rng):
-        self.respawn(rng)
 
-    def respawn(self, rng):
-        self.x = rng.uniform(2, W - 3)
-        self.y = HORIZON_ROW - 0.5     # just above the horizon
-        # A bit of horizontal drift so the rises aren't dead-vertical
-        self.vx = rng.uniform(-PARTICLE_DRIFT, PARTICLE_DRIFT)
-        # Slight variation in rise speed so particles don't move in lockstep
-        self.vy = -rng.uniform(0.7, 1.3) * PARTICLE_RISE_SPEED
-        self.age = 0
-        # Initial offset along trajectory so a fresh batch isn't a row
-        self.y += rng.uniform(0, 6) * self.vy
-        self.x += rng.uniform(0, 6) * self.vx
+def populate_compute(img, count, rng):
+    """Sprinkle `count` compute dots in the rows above and below the
+    storage line. Symmetric around the line: each dot draws a mirrored
+    pair (above + below) so the visual axis-of-symmetry is unmissable.
 
-    def step(self, rng):
-        self.x += self.vx
-        self.y += self.vy
-        self.age += 1
-        # Cull when above the top, off the sides, or too old
-        if self.y < -1 or self.x < -1 or self.x > W + 1:
-            self.respawn(rng)
+    Density is highest near the storage line and falls off with
+    distance — compute that's "close to" storage is more common, far
+    compute is rare. This reads as the cluster radiating outward from
+    the data substrate."""
+    drawn_above = 0
+    drawn_below = 0
+    target_each = count // 2
+
+    # Probability a row is selected falls off with distance from the line.
+    # Rows just above/below: high probability. Far rows: lower.
+    # Distances 1..5 (above) and 1..5 (below) — H=12, line at row 6.
+    row_weights_above = [(STORAGE_ROW - d, 6 - d) for d in range(1, STORAGE_ROW + 1)]
+    row_weights_below = [(STORAGE_ROW + d, 6 - d) for d in range(1, H - STORAGE_ROW)]
+
+    def sample_row(rows):
+        # Weighted random pick
+        total = sum(w for _, w in rows)
+        r = rng.uniform(0, total)
+        acc = 0
+        for row, w in rows:
+            acc += w
+            if r <= acc:
+                return row
+        return rows[-1][0]
+
+    placed_above = set()
+    placed_below = set()
+    attempts = 0
+    while (drawn_above < target_each or drawn_below < target_each) and attempts < count * 3:
+        attempts += 1
+        if drawn_above < target_each:
+            y = sample_row(row_weights_above)
+            x = rng.randrange(W)
+            if (x, y) not in placed_above:
+                placed_above.add((x, y))
+                img.putpixel((x, y), 1)
+                drawn_above += 1
+        if drawn_below < target_each:
+            y = sample_row(row_weights_below)
+            x = rng.randrange(W)
+            if (x, y) not in placed_below:
+                placed_below.add((x, y))
+                img.putpixel((x, y), 1)
+                drawn_below += 1
 
 
 def build_frames():
-    rng = random.Random(42)
-    particles = [Particle(rng) for _ in range(N_PARTICLES)]
+    """One full breath cycle: inhale (population grows) → exhale
+    (population shrinks) → tiny pause at zero before next cycle."""
     frames = []
+    N_FRAMES = 60   # one cycle
 
-    # Run the simulation; record one frame per step. ~80 frames lets
-    # particles cycle through several lifetimes for a richer-looking
-    # but still loopable animation.
-    N_FRAMES = 80
+    # Use a fixed seed per cycle for visual coherence — same population
+    # count produces visually similar (not identical) layouts, so the
+    # breathing reads as the SAME cluster expanding/contracting rather
+    # than randomly different clusters each frame.
+    base_seed = 12345
 
-    for frame_idx in range(N_FRAMES):
-        f = Image.new('1', (W, H), 0)
+    for i in range(N_FRAMES):
+        t = i / N_FRAMES
+        count = compute_population_for(t)
 
-        # Horizon: subtle dotted line that drifts
-        draw_horizon(f, frame_idx)
+        # Per-frame seed: use base_seed but vary slightly so each frame's
+        # exact dot positions are different (which makes the cluster
+        # *shimmer* slightly even at constant population, like a living
+        # thing). Mostly the count change is what drives perception.
+        rng = random.Random(base_seed + i)
 
-        # Particles
-        for p in particles:
-            px, py = int(round(p.x)), int(round(p.y))
-            # Main particle pixel
-            if 0 <= px < W and 0 <= py < H:
-                f.putpixel((px, py), 1)
-            # As a particle rises higher, draw a faint trailing pixel
-            # below it (motion suggestion). Skip for very fresh particles.
-            if p.age >= 3:
-                ty = py + 1
-                if 0 <= px < W and 0 <= ty < HORIZON_ROW:
-                    # Sparse trail: only every other frame to thin it out
-                    if frame_idx & 1:
-                        f.putpixel((px, ty), 1)
-
-        # Tiny pixel-toggle for frame uniqueness so PIL doesn't dedupe
-        # any visually-identical frames during GIF encode
-        if frame_idx & 1:
-            f.putpixel((W - 1, 0), 1)
-
+        f = blank()
+        draw_storage(f)
+        populate_compute(f, count, rng)
         frames.append(f)
-        for p in particles:
-            p.step(rng)
 
     return frames
 
