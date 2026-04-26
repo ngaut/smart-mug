@@ -322,9 +322,9 @@ function showImageEditorPanel() {
 
             <!-- Device Animation Speed Control -->
             <div class="mb-3">
-              <label class="block text-xs text-gray-600 mb-1">Device Frame Delay: <span id="deviceDelayValue">50</span>ms</label>
-              <input type="range" id="deviceDelaySlider" min="0" max="2000" step="50" value="50" class="w-full h-2">
-              <div class="text-xs text-gray-500 mt-1">Lower = faster animation, higher = more visible frames</div>
+              <label class="block text-xs text-gray-600 mb-1">Animation Speed (byte sent to cup): <span id="deviceDelayValue">130</span></label>
+              <input type="range" id="deviceDelaySlider" min="1" max="255" step="1" value="130" class="w-full h-2">
+              <div class="text-xs text-gray-500 mt-1">Range 1–255, larger = faster. 130 is the official default (~1 s per 4-frame cycle).</div>
             </div>
 
             <!-- Send Animation Button -->

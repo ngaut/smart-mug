@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Local cache files written at runtime
+.smart_mug_cache.json
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo

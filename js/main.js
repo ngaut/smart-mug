@@ -789,12 +789,12 @@ function setupTemporalAnimation(result) {
   document.getElementById('sendAnimationBtn').onclick = sendAnimationToDevice;
   document.getElementById('stopAnimationBtn').onclick = stopAnimationToDevice;
 
-  // Set up device delay slider
+  // Set up device animation-speed slider (sends raw speed byte 1..255).
   const deviceDelaySlider = document.getElementById('deviceDelaySlider');
   const deviceDelayValue = document.getElementById('deviceDelayValue');
   if (deviceDelaySlider && deviceDelayValue) {
     deviceDelaySlider.addEventListener('input', (e) => {
-      deviceAnimationState.frameDelay = parseInt(e.target.value);
+      deviceAnimationState.animationSpeed = parseInt(e.target.value);
       deviceDelayValue.textContent = e.target.value;
     });
   }
@@ -902,7 +902,11 @@ let deviceAnimationState = {
   currentFrame: 0,
   intervalId: null,
   startTime: null,
-  frameDelay: 130 // ms per frame; sent as the cup's `speed` byte, default matches official app's speedValue
+  // Cup's speed byte (1..255, larger = faster). Sent as-is in the 0x26
+  // prologue + each frame. Default 130 matches the official app's
+  // `speedValue: 130`. The exact unit isn't characterized — see
+  // PROTOCOL_SPEC.md §4.6 for what we know empirically.
+  animationSpeed: 130
 };
 
 async function sendAnimationToDevice() {
@@ -936,9 +940,8 @@ async function sendAnimationToDevice() {
   const totalFrames = temporalAnimationState.frameData.length;
   const frames = temporalAnimationState.frameData.map(f => f.grid);
 
-  // Speed byte: prefer the slider value (frameDelay) but clamp to 1..255.
-  // Matches the official app's `speedValue` byte in the 0x26 prologue/frame.
-  const speed = Math.max(1, Math.min(255, Math.round(deviceAnimationState.frameDelay)));
+  // Speed byte: take the slider value, clamp to 1..255.
+  const speed = Math.max(1, Math.min(255, Math.round(deviceAnimationState.animationSpeed)));
 
   console.log(`🎬 Uploading ${totalFrames}-frame animation at speed=${speed}ms...`);
   document.getElementById('deviceAnimationStatus').textContent =
@@ -963,10 +966,14 @@ async function sendAnimationToDevice() {
     showToast('Demo mode: simulating cup playback', 'info');
   }
 
-  // Phase 2: local preview loop, independent of cup playback. Floor at
-  // 50 ms — the user can't perceive faster, and the cup speed byte sent
-  // above is unchanged.
-  const previewIntervalMs = Math.max(50, speed);
+  // Phase 2: local preview loop, independent of cup playback. The cup's
+  // frame period as a function of `speed` is uncharacterized, but
+  // empirically speed=130 → ~250 ms/frame (~1 s per 4-frame cycle). The
+  // inverse approximation `period ≈ 32500 / speed` ms tracks the cup
+  // roughly across the byte's range; floored at 50 ms (20 fps) for fast
+  // speeds, and clamped to 2 s on the slow end so the preview still
+  // visibly progresses. See PROTOCOL_SPEC.md §4.6.
+  const previewIntervalMs = Math.min(2000, Math.max(50, Math.round(32500 / speed)));
   const previewLoop = () => {
     if (!deviceAnimationState.isRunning) return;
     const f = deviceAnimationState.currentFrame;
@@ -1191,8 +1198,7 @@ let multiCupAnimationState = {
   isPlaying: false,
   currentFrame: 0,
   intervalId: null,
-  mode: 'static', // 'static', 'scrollRight', 'scrollLeft', 'flashing'
-  frameDelay: 3000 // ms (must be > 1s per cup, so > 1s is safe, but for effect we want longer)
+  mode: 'static' // 'static', 'scrollRight', 'scrollLeft', 'flashing'
 };
 
 /**
@@ -1243,14 +1249,12 @@ async function playMultiCupAnimation() {
     }
   }
 
-  // Animation speed (1 byte sent in prologue + each frame). The official
-  // app's UI default is `speedValue: 130`. If the source is a GIF, prefer
-  // its average inter-frame delay (clamped to 1..255).
-  const delays = multiCupProcessedData.frames
-    .map(f => f.originalFrame?.delay)
-    .filter(d => typeof d === 'number' && d > 0);
-  const avgDelay = delays.length ? delays.reduce((a, b) => a + b, 0) / delays.length : 130;
-  const speed = Math.max(1, Math.min(255, Math.round(avgDelay)));
+  // Animation speed byte (1..255, larger = faster; default 130 matches the
+  // official app's `speedValue`). We deliberately do NOT auto-derive from
+  // the GIF's frame delays — those are in milliseconds, but the cup's speed
+  // byte is not (see PROTOCOL_SPEC.md §4.6). Mapping ms → speed-byte
+  // requires the inverse relationship we haven't fully characterized.
+  const speed = 130;
 
   // Phase 1: upload to cups + set mode (single shot, ~1 s for short animations)
   if (!isDemoMode) {
@@ -1281,11 +1285,10 @@ async function playMultiCupAnimation() {
     showToast('Demo mode: simulating cup playback', 'info');
   }
 
-  // Phase 2: local preview loop (independent of cup playback). Cycles at
-  // roughly the cup's speed so the preview tracks what's on the cup, with
-  // a 50 ms floor — the user can't perceive faster, and the wire `speed`
-  // byte sent to the cup is unchanged.
-  const previewIntervalMs = Math.max(50, speed);
+  // Phase 2: local preview loop. Same approximation as the single-cup
+  // case — `period ≈ 32500 / speed` ms, bounded [50 ms, 2 s].
+  // See PROTOCOL_SPEC.md §4.6.
+  const previewIntervalMs = Math.min(2000, Math.max(50, Math.round(32500 / speed)));
   const previewLoop = () => {
     if (!multiCupAnimationState.isPlaying) return;
     const f = multiCupAnimationState.currentFrame;
