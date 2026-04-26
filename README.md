@@ -65,8 +65,8 @@ Web-based control application for the SGUAI-C3 Smart Cup - a Bluetooth-enabled s
 # Render the "TiDB scalability" animation
 uv run --with pillow python examples/tidb_scale_animation.py
 
-# Send it to the cup; it plays autonomously after upload
-uv run python/smart_mug.py animate examples/tidb_scale.gif -s 255
+# Send it to the cup at human-readable pacing (~9 s loop)
+uv run python/smart_mug.py animate examples/tidb_scale.gif -s 200
 ```
 
 See [`examples/README.md`](examples/README.md) for what's there and tips on

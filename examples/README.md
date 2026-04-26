@@ -12,12 +12,23 @@ Generate (or re-generate) the GIF:
 uv run --with pillow python examples/tidb_scale_animation.py
 ```
 
-Send it to the cup at maximum playback speed (the cup will then play
-the animation autonomously — no further BLE traffic):
+Send it to the cup. The cup will then play the animation autonomously —
+no further BLE traffic.
 
 ```bash
+# Recommended: human-readable pacing (~9 s loop, beats are countable):
+uv run python/smart_mug.py animate examples/tidb_scale.gif -s 200
+
+# Faster for "vibes" but the scale-out beats become hard to count:
 uv run python/smart_mug.py animate examples/tidb_scale.gif -s 255
 ```
+
+**Speed tuning.** The cup's speed byte is monotonic (larger = faster)
+but the unit isn't strictly milliseconds — see `PROTOCOL_SPEC.md` §4.6.
+Empirically, period ≈ 32500 / speed, so `speed=200` ≈ 160 ms/frame
+(comfortable read), `speed=130` (default) ≈ 250 ms/frame (slow and
+deliberate), `speed=255` ≈ 127 ms/frame (motion-heavy but the scale
+beats fly by).
 
 (The pre-rendered `.gif` files are committed alongside the scripts so
 you can upload without re-rendering.)
@@ -32,17 +43,19 @@ A four-phase "horizontal scale-out" narrative for the TiDB brand:
    sparse Matrix-rain dots falling in the right region.
 2. **Scale out** — the cluster grows 1 → 2 → 4 → 8 → 16 nodes, each
    beat spawning a diamond shape with a 1-pixel halo flash, then
-   settling. Diamonds shrink as the count climbs; at n = 16 they're
-   single pixels distributed across the full width.
+   holding for ~800 ms so the count is countable. Diamonds shrink as
+   the count climbs; at n = 16 they're single pixels distributed
+   across the full width.
 3. **Wave** — a 3-pixel-wide bright wave packet sweeps L→R across the
    16-node steady state, reading as data flowing through the cluster.
-4. **Sting** — the entire display inverts for one frame at the climax,
+4. **Sting** — the entire display inverts for two beats at the climax,
    then returns to steady state and loops.
 
-34 frames at speed=255 → ~4 seconds per loop. Designed to demonstrate
-that a 1-bit 48×12 LED matrix can carry a complete narrative when
-multiple effects layer (rain background + scaling foreground + sweeping
-highlight + identity anchor + surprise beat).
+~55 frames at speed=200 → ~9 s per loop, paced for human reading.
+Demonstrates that a 1-bit 48×12 LED matrix can carry a complete
+narrative when multiple effects layer (rain background + scaling
+foreground + sweeping highlight + identity anchor + surprise beat),
+*as long as each beat dwells long enough for the eye to register it*.
 
 ## Designing your own
 

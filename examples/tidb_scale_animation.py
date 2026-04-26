@@ -1,33 +1,38 @@
 #!/usr/bin/env python3
 """TiDB scalability animation for the SGUAI-C3 cup (48×12 monochrome).
 
-Produces an animated GIF that tells a "horizontal scale-out" story in
-~4 seconds at speed=255:
+Produces an animated GIF that tells a "horizontal scale-out" story.
+Each beat is paced for human comprehension — the viewer can actually
+count 1 → 2 → 4 → 8 → 16, see the wave sweep, and register the sting.
 
-    Phase 1 — "TiDB" text wipes in left-to-right like a progress bar
-              booting up. Sparse Matrix-rain dots fall in the right
-              region, suggesting an idle cluster.
-    Phase 2 — Nodes scale 1 → 2 → 4 → 8 → 16. Each beat shows a "spawn"
-              frame (filled diamond + 1-px halo) followed by a "settled"
-              frame. The diamonds shrink as count grows; at n=16 they're
-              single pixels.
-    Phase 3 — A 3-pixel-wide bright wave packet sweeps L→R across the
-              16-node steady state, reading as data flowing through the
-              scaled cluster.
-    Phase 4 — Sting: the entire display inverts for one frame, then
-              briefly holds steady before looping.
+    Phase 1 — Boot. "TiDB" wipes in left-to-right like a progress bar,
+              with sparse Matrix-rain dots falling in the right region.
+              ~1.6 s.
+    Phase 2 — Scale out. Nodes 1 → 2 → 4 → 8 → 16, drawn as diamonds
+              that shrink as count grows. Each beat is one "spawn"
+              frame (filled diamond + halo flash) plus four "settle"
+              frames (~800 ms total per beat — long enough to count).
+              ~4 s total.
+    Phase 3 — Wave. A 3-px-wide bright wave packet sweeps L→R across
+              the 16-node steady state, reading as data flowing
+              through the cluster. ~2 s.
+    Phase 4 — Sting. The entire display inverts for two beats, then
+              returns to steady state for three beats before looping.
+              ~800 ms.
 
-Layered effects (Matrix rain + scaling diamonds + wave packet + text
-wipe + inversion sting) work together to create motion density that
-reads as "scalable distributed system" on a 1-bit LED matrix.
+Tuning notes
+------------
+The pacing assumes speed=200 (cup period ≈ 32500/200 ≈ 160 ms/frame).
+At max speed=255 (~127 ms/frame) the loop runs ~25% faster — fine for
+"motion vibe" but the scale-out beats become too fleeting to count.
 
 Usage
 -----
     # Generate the GIF (overwrites tidb_scale.gif next to this script):
     uv run --with pillow examples/tidb_scale_animation.py
 
-    # Send to cup at max speed for fluid motion (~4 s loop):
-    uv run python/smart_mug.py animate examples/tidb_scale.gif -s 255
+    # Send to cup at the human-readable pace (~9 s loop):
+    uv run python/smart_mug.py animate examples/tidb_scale.gif -s 200
 
 The pre-rendered tidb_scale.gif is checked in alongside this script
 so you can upload without running the generator.
@@ -166,24 +171,36 @@ def invert(img):
 
 
 def build_frames():
+    """Pace each beat for human reading at speed=200 (~160 ms/frame).
+    Hold frames vary the rain so the GIF encoder doesn't dedupe them
+    (each "settle" frame steps the rain, producing a unique payload)."""
     frames = []
     rain = init_rain()
 
-    # Phase 1 — text wipe-in (8 frames, no nodes yet).
+    # Phase 1 — text wipe-in. 8 wipe steps + 2 hold frames so the
+    # finished "TiDB" lingers a beat before the cluster starts.
     for i in range(8):
         f = blank()
         step_rain(rain, f)
         wipe_x = int((i + 1) / 8 * (TEXT_W + 1))
         stamp(f, "TiDB", 0, TEXT_Y, mask_x_max=wipe_x)
         frames.append(f)
+    for _ in range(2):
+        f = blank()
+        step_rain(rain, f)
+        stamp(f, "TiDB", 0, TEXT_Y)
+        frames.append(f)
 
-    # Phase 2 — scale-out, with spawn + settle frames per beat.
+    # Phase 2 — scale-out. 1 spawn + 4 settle frames per beat ≈ 800 ms
+    # at speed=200 — long enough for the viewer to count the nodes
+    # before the next doubling.
     radii = {1: 3, 2: 2, 4: 2, 8: 1, 16: 0}
+    SETTLE = 4
     for n in (1, 2, 4, 8, 16):
         centers = node_positions(n)
         r = radii[n]
 
-        # Spawn frame: filled diamonds + halo ring
+        # Spawn frame: filled diamonds + halo ring (one beat of "flash")
         f = blank()
         step_rain(rain, f)
         stamp(f, "TiDB", 0, TEXT_Y)
@@ -192,15 +209,17 @@ def build_frames():
             diamond_halo(f, cx, cy, r)
         frames.append(f)
 
-        # Settle frame: just the diamonds
-        f = blank()
-        step_rain(rain, f)
-        stamp(f, "TiDB", 0, TEXT_Y)
-        for cx, cy in centers:
-            filled_diamond(f, cx, cy, r)
-        frames.append(f)
+        # Settle frames: just the diamonds, rain continues moving.
+        for _ in range(SETTLE):
+            f = blank()
+            step_rain(rain, f)
+            stamp(f, "TiDB", 0, TEXT_Y)
+            for cx, cy in centers:
+                filled_diamond(f, cx, cy, r)
+            frames.append(f)
 
-    # Phase 3 — wave packet sweeps L→R across 16-node steady state.
+    # Phase 3 — wave packet sweeps L→R across the 16-node steady state.
+    # Step=2 means ~13 frames at 160 ms ≈ 2 s of fluid motion.
     final_centers = node_positions(16)
     for sweep_x in range(NODE_X0, NODE_X1 + 1, 2):
         f = blank()
@@ -211,11 +230,18 @@ def build_frames():
         gaussian_wave(f, sweep_x)
         frames.append(f)
 
-    # Phase 4 — sting: invert the last frame for one beat.
-    frames.append(invert(frames[-1]))
+    # Phase 4 — sting. Invert for two beats so the flip is unmistakable.
+    last_steady = blank()
+    step_rain(rain, last_steady)
+    stamp(last_steady, "TiDB", 0, TEXT_Y)
+    for cx, cy in final_centers:
+        last_steady.putpixel((cx, cy), 1)
+    sting = invert(last_steady)
+    frames.append(sting)
+    frames.append(sting)
 
-    # Hold steady briefly before loop wraps.
-    for _ in range(2):
+    # Hold steady for three beats so the loop boundary feels deliberate.
+    for _ in range(3):
         f = blank()
         step_rain(rain, f)
         stamp(f, "TiDB", 0, TEXT_Y)
@@ -233,8 +259,8 @@ def main():
         out,
         save_all=True,
         append_images=frames[1:],
-        duration=125,    # for the GIF preview only; the cup uses its
-                         # own speed byte (pass -s 255 for fluid playback)
+        duration=160,    # GIF-preview pace; the cup uses its own speed
+                         # byte (recommend -s 200 for human-readable pacing)
         loop=0,
         optimize=False,
         disposal=2,
