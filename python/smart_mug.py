@@ -367,6 +367,41 @@ class BLEManager:
         resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x02, 0x00])
         return resp[-1]
 
+    async def set_auto_off(self, value):
+        """Set the cup's auto-screen-off feature flag.
+
+        Frame: ``FF 55 07 00 02 27 <byte>``. Empirically (probed against
+        SGUAI-C3 fw 1.6, 2026-04), this byte is a **boolean**, not a
+        seconds counter as the original reverse-engineering inferred:
+        any non-zero value reads back as ``1``, only ``0`` reads back as
+        ``0``. So:
+
+          * ``set_auto_off(0)`` → auto-off disabled (display stays alive)
+          * ``set_auto_off(1)`` → auto-off enabled (firmware default)
+
+        The duration when enabled is firmware-fixed; you cannot set it.
+        """
+        if not 0 <= value <= 255:
+            raise ValueError("value must fit in one byte (0..255)")
+        command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x27, value]
+        async with self._lock:
+            try:
+                await self._execute_locked(command, timeout=10.0)
+            except asyncio.TimeoutError:
+                # Like set_dynamic_mode, the cup occasionally drops the
+                # echo for a config write. The BLE-layer ACK is enough.
+                pass
+        return True
+
+    async def read_auto_off(self):
+        """Read the current auto-screen-off flag (0=disabled, 1=enabled).
+
+        See :py:meth:`set_auto_off` — despite the protocol spec calling
+        this "seconds", probing showed it's actually a boolean.
+        """
+        resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x27, 0x00])
+        return resp[-1]
+
     async def read_version(self):
         """Read the cup's firmware version as 'major.minor' (e.g. '1.6').
 
@@ -755,6 +790,48 @@ async def cmd_mode(args):
         return 1
 
 
+async def cmd_auto_off(args):
+    """Set or read the auto-screen-off boolean flag.
+
+    The 0x27 byte is empirically a boolean (any non-zero stores as 1):
+      auto-off on  | enable  | 1   → auto-off enabled (firmware default)
+      auto-off off | disable | 0   → auto-off disabled (keep display alive)
+      auto-off                     → read current value (0 or 1)
+    """
+    arg = _first_positional(args)
+    try:
+        async with connected_manager(args) as m:
+            if arg is None:
+                current = await m.read_auto_off()
+                state = "ENABLED (display sleeps)" if current else "DISABLED (display stays on)"
+                print(f"Auto-off: {current} — {state}")
+                return 0
+
+            arg_lower = arg.lower()
+            if arg_lower in ("on", "enable", "enabled", "true", "1"):
+                value = 1
+            elif arg_lower in ("off", "disable", "disabled", "false", "0"):
+                value = 0
+            else:
+                try:
+                    value = int(arg)
+                except ValueError:
+                    print(f"Error: expected on/off/enable/disable or 0/1 (got {arg!r})")
+                    return 1
+                if not 0 <= value <= 255:
+                    print(f"Error: numeric value must be 0..255 (got {value})")
+                    return 1
+
+            await m.set_auto_off(value)
+            stored = 1 if value else 0
+            state = "ENABLED (display will sleep)" if stored else "DISABLED (display stays on)"
+            print(f"✓ Auto-off → {state}")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 async def cmd_image(args):
     path, threshold, invert, dither, _, test_pattern = _parse_image_opts(args)
     if test_pattern == "checkerboard":
@@ -975,6 +1052,7 @@ Commands:
   image --test [--rescan]                     Upload test pattern
   animate <gif> [opts] [-s SPEED] [--rescan]  Upload animation (cup plays it)
   read [field ...] [--rescan]                 Read version / temperature / battery
+  auto-off [on|off] [--rescan]                Set or read screen auto-off flag
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
   clear-cache                                 Forget cached device
 
@@ -1019,6 +1097,8 @@ async def main():
         return await cmd_animate(sys.argv[2:])
     elif cmd == 'read':
         return await cmd_read(sys.argv[2:])
+    elif cmd in ('auto-off', 'autooff', 'screen-off'):
+        return await cmd_auto_off(sys.argv[2:])
     elif cmd == 'repl':
         return await cmd_repl(sys.argv[2:])
     elif cmd == 'clear-cache':

@@ -119,7 +119,7 @@ Control"; reverse-engineering shows they are simply read vs. write — the
 | `0x23` | ✔ | ✔ | Display motion mode (0=static, 1=scroll→, 2=scroll←, 3=flash) |
 | `0x25` | — | ✔ | **Static** bitmap upload (72-byte payload) |
 | `0x26` | — | ✔ | **Animation** upload (prologue + per-frame, see §4.6) |
-| `0x27` | ✔ | ✔ | Auto-screen-off duration (seconds) |
+| `0x27` | ✔ | ✔ | Auto-screen-off flag (boolean — see §4.7) |
 
 ---
 
@@ -410,6 +410,39 @@ Frame 2:  FF 55 50 00 02 26 02 82 <72 B>
 
 ---
 
+### 4.7 Auto-Screen-Off Flag (Function: 0x02 / 0x01, Command: 0x27)
+
+**Purpose:** Enable or disable the firmware's automatic screen-off
+behavior. When enabled (the firmware default), the LED matrix powers
+down after a brief idle period; when disabled, the display stays
+alive indefinitely.
+
+**Empirical note:** the original v2.0 reverse-engineering inferred a
+`seconds` duration for this byte. Probing on SGUAI-C3 fw 1.6 (2026-04)
+showed it is actually a **boolean**: any non-zero value reads back as
+`1`, only `0` reads back as `0`. The duration when enabled is fixed
+in firmware and cannot be tuned through this command.
+
+**Set Frame:**
+```
+Offset: 0    1    2    3    4    5    6
+Bytes:  FF   55   07   00   02   27   <flag>
+```
+- `<flag>`: `0x00` to disable auto-off, any non-zero to enable.
+
+**Read Frame:**
+```
+Offset: 0    1    2    3    4    5    6
+Bytes:  FF   55   07   00   01   27   00
+```
+- Response payload final byte: `0x00` (disabled) or `0x01` (enabled).
+
+**Use case:** for animation playback or always-on dashboard scenarios,
+send `set 0` once after connecting. Persistence across power cycles
+not verified — re-send after reconnects to be safe.
+
+---
+
 ## 5. Communication Protocol Details
 
 ### 5.1 Connection sequence (mirrors the official Android app)
@@ -479,7 +512,7 @@ exhaustion it surfaces an error to the user. Successful writes are paced
 | Set Static Image | `0x02` | `0x25` | 72 B bitmap | 78 (`0x4E`) | One frame |
 | Animation Prologue | `0x02` | `0x26` | `<count><speed>` | 8 | Begin N-frame animation |
 | Animation Frame | `0x02` | `0x26` | `<idx><speed>` + 72 B | 80 (`0x50`) | Store frame (×N) |
-| Set Auto-off | `0x02` | `0x27` | 1 B seconds | 7 | Screen-off duration |
+| Set Auto-off | `0x02` | `0x27` | 1 B flag | 7 | 0=disabled (always on), nonzero=enabled |
 
 ---
 
