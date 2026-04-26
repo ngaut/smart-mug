@@ -37,34 +37,30 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-A 4-tier architecture diagram showing TiDB Next-Gen's
-compute/storage-separated design and elastic scale-out, animated as a
-narrative: idle → single query → compute scales out → burst load.
+A scrolling tagline marquee that conveys TiDB Next-Gen's brand
+in unambiguous text: **"TIDB NEXT-GEN ▸ INFINITE SCALE"**.
 
-The 12-row display is divided vertically into 4 architectural layers:
+Why text instead of an architecture diagram? Earlier drafts of this
+example tried to render a 4-tier diagram (clients / SQL / engine /
+S3) on the 48×12 LED matrix using abstract shapes — vertical
+pillars, wavy storage lines, etc. It looked busy and was hard to
+decode without prior knowledge of the architecture. **On a 1-bit
+display this small, words read instantly while abstract glyphs require
+interpretation.**
 
-```
-rows 0-2:  APP        — 4 client chevrons issuing queries
-rows 3-5:  TiDB SQL   — stateless compute pillars (elastically scalable)
-rows 6-8:  TiKV/Flash — transactional + analytical engine clusters
-rows 9-11: S3         — shared object storage (drifting wavy line)
-```
+Implementation notes:
 
-Four acts (~10 s loop at speed=200):
+- **Hand-rolled 9-row pixel font** designed for max LED legibility.
+  Each letter is 5–6 px wide, 9 rows tall (centered in the 12-row
+  display). Bold strokes; no anti-aliasing.
+- Single phrase scrolls right-to-left at 3 px/frame. At speed=200
+  (~160 ms/frame) that's ~19 px/sec — comfortable reading pace for
+  letters of this size.
+- 70 frames within the 255-frame protocol limit; ~11 s per scroll.
 
-1. **Idle** — architecture at rest, all four layers visible
-2. **Single query** — packet descends APP → SQL → KV → S3, splashes,
-   ascends back as a result. Each layer the packet traverses lights up.
-3. **Elastic scale-out** — SQL tier doubles 4 → 6 → 8 pillars with
-   halo-flash spawn animations. Storage at the bottom is unchanged —
-   the architectural punchline.
-4. **Burst** — all 4 clients simultaneously emit; packets fan across
-   the SQL tier, converge on shared S3 (full-width splash), ascend
-   back. The "shared storage handles parallel compute" demo.
-
-65 frames at speed=200 ≈ 10.4 s per loop. Designed to convey *real
-distributed-systems architecture* on 576 pixels by using vertical
-position as architectural tier and horizontal position as parallelism.
+If you want to extend this to multiple phrases (e.g. four taglines
+that take turns), increase the scroll speed (`PIXELS_PER_FRAME = 4`
+or higher) so the total frame count stays under 255.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
