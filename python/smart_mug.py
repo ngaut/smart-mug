@@ -420,7 +420,7 @@ def _pil_frame_to_grid(frame, threshold, invert, dither):
     if invert:
         img = ImageOps.invert(img.convert('L')).convert('1')
     pixels = list(img.getdata())
-    return [[0 if pixels[r * IMAGE_WIDTH + c] == 255 else 1
+    return [[1 if pixels[r * IMAGE_WIDTH + c] == 255 else 0
              for c in range(IMAGE_WIDTH)]
             for r in range(IMAGE_HEIGHT)]
 

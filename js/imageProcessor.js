@@ -131,9 +131,9 @@ class ImageProcessor {
         const idx = y * width + x;
         const oldPixel = pixels[idx];
 
-        // Quantize: decide if pixel should be black (1) or white (0)
+        // Quantize: decide if pixel is bright (1 = LED on) or dark (0 = LED off)
         const newPixel = oldPixel > threshold ? 255 : 0;
-        output[idx] = newPixel === 0 ? 1 : 0; // Invert: 0 = white, 1 = black
+        output[idx] = newPixel === 255 ? 1 : 0;
 
         // Calculate quantization error
         const error = oldPixel - newPixel;
@@ -174,7 +174,7 @@ class ImageProcessor {
     const output = new Uint8Array(grayscale.length);
 
     for (let i = 0; i < grayscale.length; i++) {
-      output[i] = grayscale[i] > threshold ? 0 : 1; // 0 = white, 1 = black
+      output[i] = grayscale[i] > threshold ? 1 : 0;
     }
 
     return output;
@@ -218,7 +218,7 @@ class ImageProcessor {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = y * width + x;
-        const color = binaryData[idx] === 1 ? '#000000' : '#FFFFFF';
+        const color = binaryData[idx] === 1 ? '#FFFFFF' : '#000000';
         ctx.fillStyle = color;
         ctx.fillRect(x * scale, y * scale, scale, scale);
       }
@@ -659,7 +659,7 @@ class ImageProcessor {
         const idx = y * width + x;
         const oldPixel = pixels[idx];
         const newPixel = oldPixel > threshold ? 255 : 0;
-        output[idx] = newPixel === 0 ? 1 : 0; // Invert: 0 = white, 1 = black
+        output[idx] = newPixel === 255 ? 1 : 0;
 
         const error = (oldPixel - newPixel) / 8; // Atkinson divides by 8, not 16
 
@@ -706,7 +706,7 @@ class ImageProcessor {
         const idx = y * width + x;
         const bayerValue = bayerMatrix[y % matrixSize][x % matrixSize];
         const threshold = bayerValue * scale;
-        output[idx] = grayscale[idx] > threshold ? 0 : 1; // 0 = white, 1 = black
+        output[idx] = grayscale[idx] > threshold ? 1 : 0;
       }
     }
 

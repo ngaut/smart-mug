@@ -237,18 +237,18 @@ class ImageSplitter {
       canvas.height = chunkHeight * scale;
       const ctx = canvas.getContext('2d');
 
-      // Count black pixels for this chunk
-      let blackPixels = 0;
+      // Count lit pixels for this chunk
+      let litPixels = 0;
       for (let row = 0; row < chunkHeight; row++) {
         for (let col = 0; col < chunkWidth; col++) {
           const pixel = grid[row][col];
-          if (pixel === 1) blackPixels++;
-          ctx.fillStyle = pixel === 1 ? '#000000' : '#FFFFFF';
+          if (pixel === 1) litPixels++;
+          ctx.fillStyle = pixel === 1 ? '#FFFFFF' : '#000000';
           ctx.fillRect(col * scale, row * scale, scale, scale);
         }
       }
 
-      console.log(`  Preview ${i}: ${canvas.width}×${canvas.height} (${chunkWidth}×${chunkHeight}), ${blackPixels} black pixels`);
+      console.log(`  Preview ${i}: ${canvas.width}×${canvas.height} (${chunkWidth}×${chunkHeight}), ${litPixels} lit pixels`);
       previews.push(canvas);
     }
 
@@ -270,13 +270,13 @@ class ImageSplitter {
     canvas.height = dimensions.height * scale;
     const ctx = canvas.getContext('2d');
 
-    // Fill background (white)
-    ctx.fillStyle = '#FFFFFF';
+    // Fill background (cup off = dark)
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Fill gap areas with light gray to visualize gaps
+    // Fill gap areas with dark gray to visualize gaps between cups
     if (this.gapHorizontal > 0 || this.gapVertical > 0) {
-      ctx.fillStyle = '#E0E0E0';
+      ctx.fillStyle = '#202020';
 
       // Draw horizontal gaps
       const boundaries = this.getCupBoundaries(layout);
@@ -321,7 +321,7 @@ class ImageSplitter {
         for (let col = 0; col < chunkWidth; col++) {
           const pixel = grid[row][col];
           if (pixel === 1) {
-            ctx.fillStyle = '#000000';
+            ctx.fillStyle = '#FFFFFF';
             const x = (startCol + col) * scale;
             const y = (startRow + row) * scale;
             ctx.fillRect(x, y, scale, scale);
