@@ -35,6 +35,37 @@ you can upload without re-rendering.)
 
 ## What's here
 
+### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
+
+A 4-tier architecture diagram showing TiDB Next-Gen's
+compute/storage-separated design and elastic scale-out, animated as a
+narrative: idle → single query → compute scales out → burst load.
+
+The 12-row display is divided vertically into 4 architectural layers:
+
+```
+rows 0-2:  APP        — 4 client chevrons issuing queries
+rows 3-5:  TiDB SQL   — stateless compute pillars (elastically scalable)
+rows 6-8:  TiKV/Flash — transactional + analytical engine clusters
+rows 9-11: S3         — shared object storage (drifting wavy line)
+```
+
+Four acts (~10 s loop at speed=200):
+
+1. **Idle** — architecture at rest, all four layers visible
+2. **Single query** — packet descends APP → SQL → KV → S3, splashes,
+   ascends back as a result. Each layer the packet traverses lights up.
+3. **Elastic scale-out** — SQL tier doubles 4 → 6 → 8 pillars with
+   halo-flash spawn animations. Storage at the bottom is unchanged —
+   the architectural punchline.
+4. **Burst** — all 4 clients simultaneously emit; packets fan across
+   the SQL tier, converge on shared S3 (full-width splash), ascend
+   back. The "shared storage handles parallel compute" demo.
+
+65 frames at speed=200 ≈ 10.4 s per loop. Designed to convey *real
+distributed-systems architecture* on 576 pixels by using vertical
+position as architectural tier and horizontal position as parallelism.
+
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
 A four-phase "horizontal scale-out" narrative for the TiDB brand:
