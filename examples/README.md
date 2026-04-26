@@ -37,30 +37,46 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-A scrolling tagline marquee that conveys TiDB Next-Gen's brand
-in unambiguous text: **"TIDB NEXT-GEN ▸ INFINITE SCALE"**.
+A **labeled architecture diagram with animated data flow**, conveying
+TiDB Next-Gen's compute/storage-separated design.
 
-Why text instead of an architecture diagram? Earlier drafts of this
-example tried to render a 4-tier diagram (clients / SQL / engine /
-S3) on the 48×12 LED matrix using abstract shapes — vertical
-pillars, wavy storage lines, etc. It looked busy and was hard to
-decode without prior knowledge of the architecture. **On a 1-bit
-display this small, words read instantly while abstract glyphs require
-interpretation.**
+Layout (read left to right):
 
-Implementation notes:
+```
+┌─────────────┬──────────────────────────┬───────────┐
+│   TIDB      │     N compute nodes      │    S3     │
+│   ×N        │     (dots scaling)       │           │
+│             ▶─── data flow arrows ───▶ │ [cylinder]│
+└─────────────┴──────────────────────────┴───────────┘
+   cols 0-14         cols 16-31            cols 33-47
+```
 
-- **Hand-rolled 9-row pixel font** designed for max LED legibility.
-  Each letter is 5–6 px wide, 9 rows tall (centered in the 12-row
-  display). Bold strokes; no anti-aliasing.
-- Single phrase scrolls right-to-left at 3 px/frame. At speed=200
-  (~160 ms/frame) that's ~19 px/sec — comfortable reading pace for
-  letters of this size.
-- 70 frames within the 255-frame protocol limit; ~11 s per scroll.
+The "TIDB" and "S3" labels (in a 7-row bold hand-pixel font) anchor
+what each part is — the architecture reads at a glance even without
+prior context. The "×N" counter below TIDB and the visible node
+count both grow (×1 → ×2 → ×4 → ×8) so the viewer sees the *number*
+and the *visual* agreeing. The S3 cylinder on the right doesn't
+change. **That side-by-side IS the architectural punchline of
+compute/storage separation.**
 
-If you want to extend this to multiple phrases (e.g. four taglines
-that take turns), increase the scroll speed (`PIXELS_PER_FRAME = 4`
-or higher) so the total frame count stays under 255.
+Three phases (~7 s loop at speed=200):
+
+1. **Reveal** — TIDB label types in, S3 types in, storage cylinder
+   fills. Architecture establishes itself.
+2. **Scale-out** — ×1 → ×2 → ×4 → ×8 with halo flashes on new
+   nodes. Counter increments. Data-flow arrows pulse left → right
+   between phases.
+3. **Sustained throughput** — at full ×8 scale, dots continuously
+   stream from compute nodes to the storage cylinder.
+
+42 frames; well within the 255-frame protocol limit.
+
+Design history note: earlier drafts oscillated between *too busy*
+(drifting wavy storage line, flicker patterns, packet trails all
+competing for attention) and *too thin* (pure scrolling text with
+no architectural content). The labeled-diagram-with-flow approach
+turned out to be the middle path that conveys the architecture
+*and* stays legible.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
