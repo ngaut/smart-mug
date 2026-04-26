@@ -1,32 +1,38 @@
 #!/usr/bin/env python3
-"""TiDB Next-Gen animation for the SGUAI-C3 cup (48×12) — "Murmuration".
+"""TiDB Next-Gen animation for the SGUAI-C3 cup (48×12) — "Survive & Scale".
 
-A flock of pixel-birds streams across the cup. They look like chaos.
-Then — for one beat — they assemble into the letters TIDB, hold,
-disperse back into chaos, and a fresh flock streams in.
+A four-act story in pixels:
 
-The metaphor: many independent agents resolving into a coherent
-brand identity, then returning to motion. It's a flocking simulation
-with a punchline. Each bird is a pixel; the whole flock IS the brand.
+    Act I  — ORDER:   A small calm cluster, regular heartbeat. The
+                      system is at rest. Establishing the baseline.
+    Act II — CRISIS:  Particles stream in from both edges. Workload
+                      overwhelms the cluster, which scatters and
+                      nearly extinguishes. Dark night of the soul.
+    Act III— SCALE:   From the surviving dots, the cluster cell-divides
+                      outward in waves: 4 → 8 → 16 → 32. Each wave
+                      absorbs more of the incoming load. Chaos
+                      resolves into ordered structure.
+    Act IV — TRIUMPH: The dots, having reached scaled-out form,
+                      organize into the letters TIDB. Snap (halo) +
+                      whole-display inverse flash (2 frames).
+    Coda  — STEADY:   The longest section. With the letters formed,
+                      a sequence of distinct operational beats:
+                        • data wave L→R (data flowing through)
+                        • heartbeat × 2 (the system is alive)
+                        • T-I-D-B announce + full-word halo (identity)
+                        • sonar ping (concentric rings, broadcasting)
+                        • data packets (concurrent multi-stream traffic)
+                        • hold + collapse back to the Act-I cluster
+                      Each beat says something different — no
+                      mirror duplications, no padding.
 
-Why this works on a coffee mug:
-  - Visually arresting (flocks captivate at any scale)
-  - Has an actual surprise (the moment of assembly)
-  - Reads as "many → one → many" which IS the TiDB shape (lots of
-    distributed pieces forming a single coherent product)
-  - Loops cleanly
-  - Hand-rolled physics, not a generic effect
+The TIDB letters are EARNED by the narrative — they're the answer to
+the question the animation poses (will the system survive the load?),
+not a gratuitous logo. Three short, intense acts of struggle resolve
+into the brand, then a long coda lets the system breathe and operate
+before looping.
 
-Animation phases (~13 s loop at speed=200):
-    Stream-in (15 frames):  Birds enter from the right edge in a
-                            ragged cloud, drifting leftward.
-    Converge   (20 frames):  Each bird picks a target pixel in the
-                            TIDB rendering and accelerates toward it.
-    Hold       (8 frames):   "TIDB" formed, steady (with subtle
-                            shimmer from per-frame jitter).
-    Disperse   (15 frames):  Birds scatter outward with random
-                            velocities, fly off the edges.
-    Return     (8 frames):   Empty display briefly, then loop.
+~85 frames at speed=200 ≈ 13.5 s per loop. Pre-TIDB ≈ 5.5 s, post ≈ 8 s.
 """
 
 from pathlib import Path
@@ -37,7 +43,7 @@ from PIL import Image
 
 W, H = 48, 12
 
-# 7-row pixel font for the brand target
+# 7-row font for the TIDB target
 GLYPHS_7 = {
     'T': ["█████", "··█··", "··█··", "··█··", "··█··", "··█··", "··█··"],
     'I': ["█",     "·",     "█",     "█",     "█",     "█",     "█"],
@@ -47,12 +53,9 @@ GLYPHS_7 = {
 
 
 def tidb_target_pixels():
-    """Return a list of (x, y) pixel positions that, when all lit,
-    spell TIDB in 7-row font, centered horizontally and vertically."""
     text = "TIDB"
-    # Compute total width
     widths = [max(len(r) for r in GLYPHS_7[c]) for c in text]
-    total_w = sum(widths) + len(widths) - 1  # 1-px gaps
+    total_w = sum(widths) + len(widths) - 1
     x0 = (W - total_w) // 2
     y0 = (H - 7) // 2
     pixels = []
@@ -72,254 +75,516 @@ def blank():
     return Image.new('1', (W, H), 0)
 
 
-class Bird:
-    """One pixel-bird with position, velocity, and an assigned target.
-    Position and velocity are floats; we round to pixels at render."""
+class Particle:
+    __slots__ = ('x', 'y', 'vx', 'vy', 'alive', 'target', 'role')
 
-    def __init__(self, x, y, vx, vy):
-        self.x = x
-        self.y = y
-        self.vx = vx
-        self.vy = vy
-        self.target = None     # (tx, ty), set during converge phase
-        self.locked = False    # True once close enough to snap to target
-
-    def step_flock(self, neighbors, drift_vx=-0.7):
-        """Boid behaviors: separation (avoid crowding), alignment (match
-        neighbor velocity), cohesion (steer toward neighbor center).
-        Plus a constant leftward drift so the flock moves across the cup."""
-        sep_x = sep_y = 0.0
-        ali_x = ali_y = 0.0
-        coh_x = coh_y = 0.0
-        n_close = 0
-        n_align = 0
-        for o in neighbors:
-            if o is self:
-                continue
-            dx = o.x - self.x
-            dy = o.y - self.y
-            d2 = dx * dx + dy * dy
-            if d2 < 4:                       # too close → separate
-                sep_x -= dx
-                sep_y -= dy
-                n_close += 1
-            if d2 < 36:                      # nearby → align + cohere
-                ali_x += o.vx
-                ali_y += o.vy
-                coh_x += o.x
-                coh_y += o.y
-                n_align += 1
-        # Apply weights
-        ax = ay = 0.0
-        if n_close > 0:
-            ax += sep_x * 0.3
-            ay += sep_y * 0.3
-        if n_align > 0:
-            ali_x /= n_align; ali_y /= n_align
-            coh_x = coh_x / n_align - self.x
-            coh_y = coh_y / n_align - self.y
-            ax += ali_x * 0.10 + coh_x * 0.04
-            ay += ali_y * 0.10 + coh_y * 0.04
-        # Drift leftward
-        ax += (drift_vx - self.vx) * 0.06
-        # Damping + integrate
-        self.vx = self.vx * 0.92 + ax
-        self.vy = self.vy * 0.92 + ay
-        # Cap speed for visual coherence
-        sp = math.hypot(self.vx, self.vy)
-        if sp > 1.4:
-            self.vx *= 1.4 / sp
-            self.vy *= 1.4 / sp
-        self.x += self.vx
-        self.y += self.vy
-        # Wrap on bottom/top so birds stay on screen during stream-in
-        if self.y < -0.5: self.y = -0.5; self.vy = abs(self.vy)
-        if self.y > H - 0.5: self.y = H - 0.5; self.vy = -abs(self.vy)
-
-    def step_converge(self, k=0.10, snap_dist=0.7):
-        """Accelerate toward target. When close enough, lock to target
-        exactly so the formed letters are pixel-perfect."""
-        if self.target is None:
-            return
-        if self.locked:
-            self.x, self.y = self.target
-            return
-        tx, ty = self.target
-        ax = (tx - self.x) * k
-        ay = (ty - self.y) * k
-        self.vx = self.vx * 0.85 + ax
-        self.vy = self.vy * 0.85 + ay
-        self.x += self.vx
-        self.y += self.vy
-        if math.hypot(tx - self.x, ty - self.y) <= snap_dist:
-            self.x, self.y = tx, ty
-            self.vx = self.vy = 0.0
-            self.locked = True
-
-    def step_disperse(self):
-        """Free-fly with momentum, slowly losing speed."""
-        self.vx *= 0.985
-        self.vy *= 0.985
-        self.x += self.vx
-        self.y += self.vy
+    def __init__(self, x, y, vx=0.0, vy=0.0, role='cluster'):
+        self.x, self.y = x, y
+        self.vx, self.vy = vx, vy
+        self.alive = True
+        self.target = None
+        self.role = role     # 'cluster' or 'load'
 
 
-def init_flock(n_birds, rng):
-    """Spawn `n_birds` just off the right edge in a vertically
-    distributed band, all moving leftward with a shared base velocity
-    plus per-bird perturbation. The shared component matters — that's
-    what makes them look like a flock and not isolated drifters."""
-    base_vx = -1.0
-    base_vy = rng.uniform(-0.2, 0.2)
-    birds = []
-    for _ in range(n_birds):
-        x = W + rng.uniform(0, 14)
-        y = rng.uniform(0.5, H - 1.5)
-        vx = base_vx + rng.uniform(-0.15, 0.15)
-        vy = base_vy + rng.uniform(-0.15, 0.15)
-        birds.append(Bird(x, y, vx, vy))
-    return birds
-
-
-def render(birds, bright=None):
-    """Render birds. Optionally pass `bright` (a set of indices) to
-    render those birds doubly bright by also lighting an adjacent pixel.
-    Useful for the snap-to-formation moment and the disperse trigger."""
+def render(particles, halo=False, invert=False):
     f = blank()
-    bright = bright or set()
-    for i, b in enumerate(birds):
-        x, y = int(round(b.x)), int(round(b.y))
+    for p in particles:
+        if not p.alive:
+            continue
+        x, y = int(round(p.x)), int(round(p.y))
         if 0 <= x < W and 0 <= y < H:
             f.putpixel((x, y), 1)
-            if i in bright:
-                # Halo: light one adjacent pixel for visual emphasis
+            if halo:
                 if x + 1 < W: f.putpixel((x + 1, y), 1)
+                if y + 1 < H: f.putpixel((x, y + 1), 1)
+    if invert:
+        out = blank()
+        for y in range(H):
+            for x in range(W):
+                if not f.getpixel((x, y)):
+                    out.putpixel((x, y), 1)
+        return out
     return f
 
 
-def assign_targets_greedy(birds, targets, rng):
-    """Greedy nearest-target assignment. For each bird (in random order
-    so the result isn't biased toward any traversal axis), find the
-    closest unassigned target and claim it. This produces an organic
-    convergence shape — birds take the targets they're closest to,
-    rather than all sweeping in lockstep along one axis."""
-    free = list(targets)
-    order = list(range(len(birds)))
-    rng.shuffle(order)
-    for i in order:
-        b = birds[i]
-        if not free:
-            break
-        # Pick the nearest free target
-        best_idx = 0
-        best_d2 = float('inf')
-        for j, (tx, ty) in enumerate(free):
-            d2 = (tx - b.x) ** 2 + (ty - b.y) ** 2
-            if d2 < best_d2:
-                best_d2 = d2
-                best_idx = j
-        b.target = free.pop(best_idx)
+def heartbeat_offset(t, period=8):
+    """sin² heartbeat offset for the resting cluster: small bob in y."""
+    return math.sin(2 * math.pi * t / period) * 0.6
 
 
 def build_frames():
-    rng = random.Random(11)
-    targets = tidb_target_pixels()
-    n_birds = len(targets)
-    birds = init_flock(n_birds, rng)
+    rng = random.Random(7)
     frames = []
 
-    # ---------- Stream-in: ~16 frames ----------
-    # Birds enter from the right and develop flocking behavior. They
-    # interact with each other — separation, alignment, cohesion —
-    # so the cluster reads as a flock, not as isolated drifters.
-    for _ in range(16):
-        for b in birds:
-            b.step_flock(birds)
-        frames.append(render(birds))
+    # ────────── ACT I — ORDER (6 frames) ──────────
+    # A small tight cluster of 6 dots in the center, gently bobbing.
+    # Tightened from 10 frames so the eye doesn't dwell on baseline.
+    cluster_center = (W / 2, H / 2)
+    cluster = []
+    for i in range(6):
+        ang = 2 * math.pi * i / 6
+        cluster.append(Particle(
+            cluster_center[0] + math.cos(ang) * 2.5,
+            cluster_center[1] + math.sin(ang) * 1.5,
+            role='cluster'
+        ))
 
-    # ---------- Converge: ~22 frames ----------
-    # Greedy nearest-target assignment so the convergence shape is
-    # organic. Continue with light flocking influence early so the
-    # cluster moves coherently before snapping into letters.
-    assign_targets_greedy(birds, targets, rng)
-    for step in range(22):
-        # Early convergence: blend flocking + target attraction so
-        # the flock pulls itself into the letters while still
-        # behaving like a group. Late convergence: pure target lock.
-        flock_weight = max(0.0, 0.5 - step * 0.04)
-        for b in birds:
-            if not b.locked and flock_weight > 0:
-                # Pre-step a tiny flocking nudge before the convergence pull
-                pre_vx, pre_vy = b.vx, b.vy
-                b.step_flock(birds, drift_vx=-0.2)
-                # Re-blend: most of the new motion is still target-driven
-                b.vx = b.vx * flock_weight + pre_vx * (1 - flock_weight)
-                b.vy = b.vy * flock_weight + pre_vy * (1 - flock_weight)
-            b.step_converge(k=0.12 + step * 0.005, snap_dist=0.6)
-        # Mark snap-frames with a halo on birds that JUST locked this step
-        # (handled by tracking before/after lock state)
-        frames.append(render(birds))
-
-    # ---------- Snap: 1 punctuation frame ----------
-    # All birds locked. One bright frame where every bird gets a tiny
-    # halo — visually punctuates the moment of formation.
-    snap_idx = set(range(len(birds)))
-    frames.append(render(birds, bright=snap_idx))
-
-    # ---------- Hold: 10 frames with subtle pulse ----------
-    # Hold the formed "TIDB" with a gentle 2-frame "breath" cycle —
-    # every 4 frames, a few birds fade by becoming invisible (a 1-frame
-    # blink at staggered positions). Reads as the formation breathing,
-    # not as static text.
-    for hold_idx in range(10):
+    for i in range(6):
+        bob = heartbeat_offset(i)
         f = blank()
-        for i, b in enumerate(birds):
-            tx, ty = b.target
-            # Stagger occasional 1-frame blinks: ~1/20 chance per bird per frame
-            blink = (i * 13 + hold_idx * 7) % 23 < 2
-            if blink:
-                continue
-            f.putpixel(tx, ty) if False else f.putpixel((tx, ty), 1)
-        if hold_idx & 1:
+        for p in cluster:
+            x, y = int(round(p.x)), int(round(p.y + bob))
+            if 0 <= x < W and 0 <= y < H:
+                f.putpixel((x, y), 1)
+        # Frame uniqueness
+        if i & 1:
             f.putpixel((0, 0), 1)
         frames.append(f)
 
-    # ---------- Disperse trigger: 1 wave frame ----------
-    # Before the disperse, a single frame where ONE bird (the
-    # "trigger") has a halo — as if startled. The eye reads this as
-    # cause-and-effect.
-    trigger = len(birds) // 2
-    frames.append(render(birds, bright={trigger}))
+    # ────────── ACT II — CRISIS (12 frames) ──────────
+    # Particles stream in from both edges. Cluster dots get knocked
+    # around. Near-extinction beat in the middle. Compressed from 16
+    # so the crisis hits harder and resolves faster.
+    load = []
+    for stream in range(8):
+        # Left-side incoming
+        load.append(Particle(
+            -rng.uniform(2, 12),
+            rng.uniform(0, H - 1),
+            vx=rng.uniform(0.8, 1.4),
+            vy=rng.uniform(-0.2, 0.2),
+            role='load'
+        ))
+        # Right-side incoming
+        load.append(Particle(
+            W + rng.uniform(2, 12),
+            rng.uniform(0, H - 1),
+            vx=-rng.uniform(0.8, 1.4),
+            vy=rng.uniform(-0.2, 0.2),
+            role='load'
+        ))
 
-    # ---------- Disperse: ~14 frames ----------
-    # Give each bird outward velocity from screen center, with the
-    # trigger bird's neighbors getting slightly more impulse (ripple
-    # outward from the trigger).
-    cx, cy = W / 2, H / 2
-    trig = birds[trigger]
-    for b in birds:
-        b.x, b.y = b.target
-        b.locked = False
-        dx = b.x - cx
-        dy = b.y - cy
-        mag = max(0.5, math.hypot(dx, dy))
-        # Distance from trigger affects impulse magnitude
-        td = math.hypot(b.x - trig.x, b.y - trig.y)
-        impulse = rng.uniform(1.0, 1.5) * (1.0 + max(0, 1.0 - td / 12))
-        b.vx = (dx / mag) * impulse + rng.uniform(-0.3, 0.3)
-        b.vy = (dy / mag) * impulse + rng.uniform(-0.3, 0.3)
-    for _ in range(14):
-        for b in birds:
-            b.step_disperse()
-        frames.append(render(birds))
+    # During crisis, cluster dots get jostled toward the cup edges
+    # (visible "stress"). 3 of them get extinguished entirely (deaths).
+    for p in cluster:
+        p.vx = rng.uniform(-0.4, 0.4)
+        p.vy = rng.uniform(-0.4, 0.4)
 
-    # ---------- Empty pause: 3 frames ----------
-    # Brief silence before the next flock streams in — a beat of
-    # negative space that frames the punchline of the next loop.
-    for i in range(3):
+    for i in range(12):
+        # Update load particles
+        for p in load:
+            p.x += p.vx
+            p.y += p.vy
+        # Update cluster: jostle and dampen
+        for p in cluster:
+            p.vx = p.vx * 0.85 + rng.uniform(-0.15, 0.15)
+            p.vy = p.vy * 0.85 + rng.uniform(-0.15, 0.15)
+            p.x += p.vx
+            p.y += p.vy
+
+        # Mid-crisis: kill 3 cluster particles to show the system
+        # nearly losing (frame 4, ~33% in — felt earlier than before).
+        if i == 4:
+            for p in cluster[:3]:
+                p.alive = False
+
+        # Turning point: bring them back fully revived (frame 8, ~66%
+        # in) — the system survives, transitioning into Act III.
+        if i == 8:
+            for p in cluster:
+                p.alive = True
+                p.x = cluster_center[0] + rng.uniform(-3, 3)
+                p.y = cluster_center[1] + rng.uniform(-2, 2)
+                p.vx = p.vy = 0.0
+
+        # Render: only show particles still on-screen
         f = blank()
+        for p in load:
+            x, y = int(round(p.x)), int(round(p.y))
+            if 0 <= x < W and 0 <= y < H:
+                f.putpixel((x, y), 1)
+        for p in cluster:
+            if not p.alive:
+                continue
+            x, y = int(round(p.x)), int(round(p.y))
+            if 0 <= x < W and 0 <= y < H:
+                f.putpixel((x, y), 1)
         if i & 1:
+            f.putpixel((W - 1, 0), 1)
+        frames.append(f)
+
+    # ────────── ACT III — SCALE (~12 frames) ──────────
+    # From 6 surviving cluster dots, cell-divide outward in waves:
+    # 6 → 12 → 24 → 48 → 55. Each wave: existing dots split, the new
+    # spawned dots fly outward a bit, then settle. Tightened from 4 to
+    # 3 settle frames per wave.
+    # Build a growing population that we'll then organize into TIDB.
+
+    targets = tidb_target_pixels()
+    n_target = len(targets)
+
+    # Start with the 6 survivors. Each scale wave doubles the count
+    # roughly until we hit n_target.
+    scaled = list(cluster)
+    while len(scaled) < n_target:
+        # Each existing particle "spawns" a copy; the spawn appears
+        # at a small offset and over the next few frames migrates to
+        # an organic position. Limit growth to n_target.
+        new_count = min(len(scaled) * 2, n_target) - len(scaled)
+        new_particles = []
+        for _ in range(new_count):
+            parent = rng.choice(scaled)
+            ang = rng.uniform(0, 2 * math.pi)
+            r = rng.uniform(2, 6)
+            child = Particle(
+                parent.x + math.cos(ang) * r,
+                parent.y + math.sin(ang) * r,
+                vx=math.cos(ang) * 0.3,
+                vy=math.sin(ang) * 0.3,
+                role='cluster'
+            )
+            new_particles.append(child)
+        scaled.extend(new_particles)
+
+        # Animate: render 3 frames of the new spawn motion + load decay
+        for k in range(3):
+            f = blank()
+            # Update load (still streaming in but fading)
+            for p in load:
+                p.x += p.vx
+                p.y += p.vy * 0.95
+                # Cull load particles that flew past the cluster
+                if p.x < -2 or p.x > W + 2:
+                    p.alive = False
+                if p.alive:
+                    x, y = int(round(p.x)), int(round(p.y))
+                    if 0 <= x < W and 0 <= y < H:
+                        f.putpixel((x, y), 1)
+            # Update scaled cluster: damped spread
+            for p in scaled:
+                p.vx *= 0.85
+                p.vy *= 0.85
+                p.x += p.vx
+                p.y += p.vy
+                # Bounce off edges so the population stays on screen
+                if p.x < 1: p.x = 1; p.vx = abs(p.vx)
+                if p.x > W - 2: p.x = W - 2; p.vx = -abs(p.vx)
+                if p.y < 1: p.y = 1; p.vy = abs(p.vy)
+                if p.y > H - 2: p.y = H - 2; p.vy = -abs(p.vy)
+                x, y = int(round(p.x)), int(round(p.y))
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+            if k & 1:
+                f.putpixel((0, 0), 1)
+            frames.append(f)
+
+    # Trim scaled list to exactly n_target so we have one bird per
+    # target pixel
+    scaled = scaled[:n_target]
+
+    # ────────── ACT IV — TRIUMPH (~14 frames) ──────────
+    # Particles converge to TIDB target positions (greedy nearest).
+    rng_assign = random.Random(13)
+    free = list(targets)
+    order = list(range(len(scaled)))
+    rng_assign.shuffle(order)
+    for i in order:
+        p = scaled[i]
+        if not free:
+            break
+        best = 0; best_d2 = float('inf')
+        for j, (tx, ty) in enumerate(free):
+            d2 = (tx - p.x) ** 2 + (ty - p.y) ** 2
+            if d2 < best_d2:
+                best_d2 = d2; best = j
+        p.target = free.pop(best)
+
+    # Convergence: 6 frames pulling toward targets (snappier — the
+    # arrival, not the journey, is the moment).
+    for step in range(6):
+        f = blank()
+        for p in scaled:
+            if p.target is None:
+                continue
+            tx, ty = p.target
+            # Stronger pull since we have fewer frames to converge in
+            ax = (tx - p.x) * (0.35 + step * 0.08)
+            ay = (ty - p.y) * (0.35 + step * 0.08)
+            p.vx = p.vx * 0.7 + ax
+            p.vy = p.vy * 0.7 + ay
+            p.x += p.vx
+            p.y += p.vy
+            # Wider snap radius so the snappier easing doesn't cause
+            # particles to overshoot and miss their target slot.
+            if math.hypot(tx - p.x, ty - p.y) <= 1.2:
+                p.x, p.y = tx, ty
+                p.vx = p.vy = 0.0
+            x, y = int(round(p.x)), int(round(p.y))
+            if 0 <= x < W and 0 <= y < H:
+                f.putpixel((x, y), 1)
+        if step & 1:
             f.putpixel((0, 0), 1)
+        frames.append(f)
+
+    # SNAP: 1 frame with halo on all letters — the moment of triumph
+    f = blank()
+    for p in scaled:
+        if p.target:
+            tx, ty = p.target
+            f.putpixel((tx, ty), 1)
+            if tx + 1 < W:
+                f.putpixel((tx + 1, ty), 1)
+            if ty + 1 < H:
+                f.putpixel((tx, ty + 1), 1)
+    frames.append(f)
+
+    # WHOLE-DISPLAY FLASH: 2 frames inverted (extended for emphasis —
+    # the moment of triumph reads as a deliberate flash, not a glitch).
+    last = frames[-1]
+    inv = blank()
+    for y in range(H):
+        for x in range(W):
+            if not last.getpixel((x, y)):
+                inv.putpixel((x, y), 1)
+    frames.append(inv)
+    # Add a uniqueness toggle on the second copy so the encoder doesn't
+    # dedupe and the cup gets two distinct frame slots. The corner is
+    # already lit in the inverse, so flip it OFF to get a real diff.
+    inv2 = inv.copy()
+    inv2.putpixel((W - 1, 0), 0)
+    frames.append(inv2)
+
+    # ────────── CODA — OPERATIONAL ──────────
+    # The system has formed. Now it gets to be alive on screen. Hold
+    # → data flows L→R → settle → heartbeat → settle → data flows R→L
+    # → settle. Each wave is bidirectional traffic across the cluster;
+    # the heartbeat punctuates "still alive."
+
+    letter_pixels = {p.target for p in scaled if p.target}
+    xs = [x for (x, _) in letter_pixels]
+    letters_x_min, letters_x_max = min(xs), max(xs)
+
+    def render_tidb(toggle=None):
+        f = blank()
+        for (tx, ty) in letter_pixels:
+            f.putpixel((tx, ty), 1)
+        if toggle is not None:
+            f.putpixel(toggle, 1)
+        return f
+
+    def invert_image(src):
+        out = blank()
+        for y in range(H):
+            for x in range(W):
+                if not src.getpixel((x, y)):
+                    out.putpixel((x, y), 1)
+        return out
+
+    def render_sweep(sweep_x):
+        f = render_tidb()
+        for dx in (-1, 0, 1):
+            x = sweep_x + dx
+            if not (0 <= x < W):
+                continue
+            if dx == 0:
+                for y in range(H):
+                    f.putpixel((x, y), 1)
+            else:
+                for y in range(2, H - 2):
+                    f.putpixel((x, y), 1)
+        return f
+
+    # Hold A: 3 frames — let the formed letters land before any motion.
+    # Each frame uses a different corner toggle so the GIF encoder
+    # doesn't dedupe consecutive "clean TIDB" frames.
+    hold_a_toggles = [(0, 0), (W - 1, 0), (0, H - 1)]
+    for toggle in hold_a_toggles:
+        frames.append(render_tidb(toggle))
+
+    # Data sweep L→R through the cluster
+    sweep_lo = letters_x_min - 4
+    sweep_hi = letters_x_max + 4
+    for sweep_x in range(sweep_lo, sweep_hi + 1, 2):
+        frames.append(render_sweep(sweep_x))
+
+    # Hold B: 3 frames — the wave passed, system is at rest again
+    hold_b_toggles = [(W - 1, H - 1), (0, 0), (W - 1, 0)]
+    for toggle in hold_b_toggles:
+        frames.append(render_tidb(toggle))
+
+    # Heartbeat 1 — 4 frames (2 pulses), invert/normal alternation.
+    # Each frame is a fresh image with a unique toggle pixel so the
+    # GIF encoder doesn't dedupe identical-looking systole/diastole
+    # repetitions and the cup gets all four distinct frame slots.
+    def heartbeat_frame(invert, toggle):
+        f = render_tidb()
+        if invert:
+            f = invert_image(f)
+        # Flip a corner pixel for uniqueness without disturbing letters
+        cur = f.getpixel(toggle)
+        f.putpixel(toggle, 0 if cur else 1)
+        return f
+
+    frames.append(heartbeat_frame(True,  (0, 0)))           # systole 1
+    frames.append(heartbeat_frame(False, (W - 1, 0)))       # diastole 1
+    frames.append(heartbeat_frame(True,  (0, H - 1)))       # systole 2
+    frames.append(heartbeat_frame(False, (W - 1, H - 1)))   # diastole 2
+
+    # Hold C: 3 frames
+    hold_c_toggles = [(0, H - 1), (W - 1, H - 1), (0, 0)]
+    for toggle in hold_c_toggles:
+        frames.append(render_tidb(toggle))
+
+    # Letter-by-letter announce — T, then I, then D, then B each pulse
+    # in turn (halo around just that letter), then the whole word
+    # halos at once. Reads as the system "spelling itself out": a
+    # different kind of activity than the data sweep, not a mirror of
+    # it. ~14 frames at speed=200 ≈ 2.2 s.
+    #
+    # Letter x-ranges in the canonical TIDB layout (5+1+1+1+5+1+5 → x0=14):
+    #   T: 14..18, I: 20, D: 22..26, B: 28..32
+    letter_ranges = [
+        ('T', 14, 18),
+        ('I', 20, 20),
+        ('D', 22, 26),
+        ('B', 28, 32),
+    ]
+
+    def render_with_letter_halo(x_lo, x_hi):
+        f = render_tidb()
+        for (tx, ty) in letter_pixels:
+            if x_lo <= tx <= x_hi:
+                if tx + 1 < W:
+                    f.putpixel((tx + 1, ty), 1)
+                if ty + 1 < H:
+                    f.putpixel((tx, ty + 1), 1)
+        return f
+
+    # 3 frames per letter: halo, halo (held), clean release
+    for name, x_lo, x_hi in letter_ranges:
+        halo = render_with_letter_halo(x_lo, x_hi)
+        frames.append(halo)
+        # Held halo with a unique toggle so it doesn't dedupe
+        halo2 = halo.copy()
+        halo2.putpixel((0, 0), 1 if not halo.getpixel((0, 0)) else 0)
+        frames.append(halo2)
+        # Release: clean TIDB with a unique toggle per letter
+        toggle_y = ord(name) % H
+        frames.append(render_tidb((W - 1, toggle_y)))
+
+    # Final beat — all four letters halo at once (the word "speaks").
+    # 2 frames of full-word halo so the eye reads it as a deliberate
+    # punctuation, not a flicker.
+    full_halo = render_tidb()
+    for (tx, ty) in letter_pixels:
+        if tx + 1 < W:
+            full_halo.putpixel((tx + 1, ty), 1)
+        if ty + 1 < H:
+            full_halo.putpixel((tx, ty + 1), 1)
+    frames.append(full_halo)
+    full_halo2 = full_halo.copy()
+    full_halo2.putpixel((0, 0), 0 if full_halo.getpixel((0, 0)) else 1)
+    frames.append(full_halo2)
+
+    # Sonar ping — concentric diamond rings emanate from the cluster
+    # center and expand outward until they reach the screen edges.
+    # Reads as "TiDB broadcasting": the system has identity, now it
+    # reaches out. ~6 frames, ~960 ms at speed=200.
+    ping_cx = (letters_x_min + letters_x_max) // 2
+    ping_cy = H // 2
+    for r in (2, 4, 6, 8, 10, 12):
+        f = render_tidb()
+        # Draw diamond outline at this radius
+        for dx in range(-r, r + 1):
+            dy = r - abs(dx)
+            for sign in (-1, 1):
+                x = ping_cx + dx
+                y = ping_cy + sign * dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+        frames.append(f)
+
+    # Brief hold so the eye registers the ping reaching the edges
+    # before the next motif starts.
+    for toggle in [(0, 0), (W - 1, 0)]:
+        frames.append(render_tidb(toggle))
+
+    # Data packets — 1-pixel particles streaming across the screen in
+    # BOTH directions simultaneously. Where a packet crosses a letter
+    # pixel it visually merges (already lit); where it's in empty
+    # space it shows. Reads as "concurrent distributed traffic" —
+    # different from the wave packet (which was a single broad
+    # wavefront) by being many independent streams. ~12 frames.
+    pkt_rng = random.Random(42)
+    packets = []
+    # Pre-seed an active swarm so frame 0 already looks busy
+    for _ in range(8):
+        side = pkt_rng.choice([-1, 1])
+        x = pkt_rng.randint(0, W - 1)
+        y = pkt_rng.randint(0, H - 1)
+        packets.append([x, y, 3 if side < 0 else -3])
+
+    for _ in range(12):
+        # Step
+        for p in packets:
+            p[0] += p[2]
+        # Cull off-screen and respawn from opposite edge to keep flux
+        packets = [p for p in packets if -1 <= p[0] <= W]
+        while len(packets) < 8:
+            side = pkt_rng.choice([-1, 1])
+            if side < 0:
+                x, vx = -1, 3
+            else:
+                x, vx = W, -3
+            y = pkt_rng.randint(0, H - 1)
+            packets.append([x, y, vx])
+        # Render: TIDB underneath, packets on top (set-OR)
+        f = render_tidb()
+        for (x, y, _) in packets:
+            if 0 <= x < W and 0 <= y < H:
+                f.putpixel((x, y), 1)
+        frames.append(f)
+
+    # Hold D / settled: 3 frames before the collapse begins
+    hold_d_toggles = [(W - 1, 0), (0, H - 1), (W - 1, H - 1)]
+    for toggle in hold_d_toggles:
+        frames.append(render_tidb(toggle))
+
+    # Reset to small cluster: 3 frames that interpolate the TIDB letter
+    # pixels toward the 6 starting cluster positions, so the loop wraps
+    # cleanly back to Act I instead of fading to a single point.
+    cluster_targets = []
+    for i in range(6):
+        ang = 2 * math.pi * i / 6
+        cluster_targets.append((
+            cluster_center[0] + math.cos(ang) * 2.5,
+            cluster_center[1] + math.sin(ang) * 1.5,
+        ))
+
+    # Assign each TIDB pixel to a cluster slot (round-robin) so all 55
+    # dots flow into the 6 final positions
+    assignments = []
+    for i, p in enumerate(scaled):
+        if p.target is None:
+            continue
+        assignments.append((p.target, cluster_targets[i % 6]))
+
+    for step in range(3):
+        f = blank()
+        # Easing: cubic ease-in so the collapse accelerates inward
+        t = ((step + 1) / 3) ** 1.5
+        seen = set()
+        for (tx, ty), (cx, cy) in assignments:
+            px = tx * (1 - t) + cx * t
+            py = ty * (1 - t) + cy * t
+            xi, yi = int(round(px)), int(round(py))
+            if 0 <= xi < W and 0 <= yi < H:
+                f.putpixel((xi, yi), 1)
+                seen.add((xi, yi))
+        # Frame uniqueness toggle in a corner where the collapse never
+        # reaches, so it doesn't accidentally land on a real pixel
+        if step & 1:
+            f.putpixel((W - 1, H - 1), 1)
         frames.append(f)
 
     return frames

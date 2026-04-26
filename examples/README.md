@@ -37,66 +37,53 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-**"Murmuration"** — a flock of pixel-birds streams in chaotic from
-the right edge, gradually converges, **assembles into the letters
-TIDB** for one beat, then bursts outward and flies off. Then a fresh
-flock streams in. Loop forever.
+**"Survive & Scale"** — a four-act story told in pixels, not a single
+visual moment. The TIDB letters at the end are *earned* by the
+narrative, not a logo bolted on:
 
 ```
-   ←── chaos: flock drifting leftward, scattered ───────
+   Act I — ORDER
+       . .          a small cluster bobs on a heartbeat. The
+      .   .         system at rest. Establishing baseline.
+       . .
 
-         . .   . .              .  .   .
-            .         .   .   .       .       .
-       .       .   .             .       .  .
+   Act II — CRISIS
+   .  →  . .  ←  .  load streams in from both edges, jostling
+        .         the cluster. 3 dots wink out — the system
+   .  →     ←  .   nearly loses. Then they revive. Survival.
 
-   ─── converging ─────────────────────────────────────
+   Act III — SCALE
+        . . . .    cell-division waves: 6 → 12 → 24 → 48
+     . . . . . .   the cluster grows outward in pulses,
+    . . . . . . .  absorbing the load.
 
-                ▮▮▮▮▮  ▮  ▮▮▮▮·  ▮▮▮▮·
-                  ▮       ▮   ▮  ▮   ▮
-                  ▮     ▮ ▮   ▮  ▮▮▮▮·     ← *click!*  TIDB
-                  ▮     ▮ ▮   ▮  ▮   ▮       holds for
-                  ▮     ▮ ▮   ▮  ▮   ▮       one breath
-                  ▮     ▮ ▮   ▮  ▮   ▮
-                  ▮     ▮ ▮▮▮▮·  ▮▮▮▮·
-
-   ─── dispersing: flock bursts outward and flies off ──
-
-       .                                   .
-              .         .                .
-                  .            .
-
-       (empty for a beat) ...
-   ←── new flock streams in (loop) ──────────────────
+   Act IV — TRIUMPH
+   ▮▮▮▮▮ ▮ ▮▮▮▮ ▮▮▮▮      the dots organize into TIDB
+     ▮     ▮  ▮ ▮  ▮      *snap* (halo flash)
+     ▮  ▮  ▮  ▮ ▮▮▮▮      *flash* (whole-display invert)
+     ▮  ▮  ▮  ▮ ▮  ▮      hold the brand for a breath...
+     ▮  ▮ ▮▮▮▮  ▮▮▮▮      then collapse back to the cluster
+                          and the story restarts.
 ```
 
-A 55-bird flocking simulation with hand-rolled physics, not a generic
-effect. Each bird is a pixel with position + velocity; targets are
-assigned by left-to-right distance during the converge phase so the
-flock settles cleanly into the letters; dispersal velocity is
-outward-from-center so birds fly off the edges naturally.
+**Why this works on a coffee cup**: a story with stakes survives the
+constraints of a 48×12 monochrome panel better than a single arresting
+image. The viewer reads four beats — *establish, threaten, adapt,
+prevail* — and the brand-assembly is the *punchline of the story*, not
+the whole content. Loops cleanly because the collapse-back lands
+exactly on the Act I cluster geometry.
 
-**Why this works on a coffee cup**:
+59 frames at speed=200 ≈ 9.4 s per loop.
 
-- Visually arresting. Flocks captivate at any scale.
-- Has an actual *surprise* — the moment of assembly is a real
-  punchline, not just a transition.
-- Captures the *cultural* shape of TiDB (many distributed pieces
-  resolving into a single coherent product) without being a
-  literal architectural diagram.
-- Loops cleanly. The moment of formation is something you'd want
-  to wait for again.
-
-62 frames at speed=200 ≈ 9.9 s per loop.
-
-Design history — nine iterations:
+Design history — ten iterations:
 v1 4-tier diagram (busy) → v2 abstract slab → v3 scrolling text →
 v4 labeled diagram with counter (cluttered) → v5 decluttered diagram
 → v6 animated workload tracks → v7 telemetry dashboard → v8 ambient
-breathing → **v9 (this version): pixel-bird murmuration with
-brand-assembly punchline**. The lesson the iterations teach: when
-"explain the architecture" doesn't fit the medium, do something
-*genuinely creative* whose punchline IS the brand identity. The
-cup's job is to be a surprise on a coffee table, not a slide.
+breathing → v9 pixel-bird murmuration → **v10 (this version):
+four-act narrative, "Survive & Scale"**. The lesson the iterations
+teach: when "explain the architecture" doesn't fit the medium,
+*tell a story whose climax is the brand*. The cup's job is to be a
+surprise on a coffee table, not a slide.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
