@@ -69,14 +69,17 @@ Three phases (~7 s loop at speed=200):
 3. **Sustained throughput** — at full ×8 scale, dots continuously
    stream from compute nodes to the storage cylinder.
 
-42 frames; well within the 255-frame protocol limit.
+~33 frames; well within the 255-frame protocol limit.
 
 Design history note: earlier drafts oscillated between *too busy*
 (drifting wavy storage line, flicker patterns, packet trails all
 competing for attention) and *too thin* (pure scrolling text with
-no architectural content). The labeled-diagram-with-flow approach
-turned out to be the middle path that conveys the architecture
-*and* stays legible.
+no architectural content). An intermediate version added a "×N"
+counter and animated data-flow arrows, but those turned out to be
+redundant — the visible node count IS the counter, and the static
+labeled layout already implies the data flow direction. The current
+version strips back to four elements: TIDB label, scaling nodes,
+S3 label, cylinder outline. Subtraction wins on tiny canvases.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 

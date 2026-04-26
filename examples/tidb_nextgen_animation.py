@@ -5,29 +5,28 @@ Design history (so future-you doesn't repeat the iterations):
   v1: 4-tier diagram with drifting wave + flicker + trails — too busy.
   v2: Static 2-tier slab — too abstract without prior context.
   v3: Pure scrolling text — too simplified, no architecture.
-  v4 (this version): Labeled architecture diagram with animated flow.
+  v4: Labeled architecture diagram with counter + arrows — still busy.
+  v5 (this version): Same labeled architecture, decluttered to four
+      elements: TIDB label, scaling nodes, S3 label, cylinder outline.
 
 Layout — three labeled regions read left to right:
 
     ┌─────────────┬──────────────────────────┬───────────┐
-    │   TIDB ×N   │     N compute nodes      │    S3     │
+    │   TIDB      │     N compute nodes      │    S3     │
     │             │     (dots scaling)       │           │
-    │             ▶─── data flow arrows ───▶ │ [cylinder]│
+    │             │                          │ [cylinder]│
     └─────────────┴──────────────────────────┴───────────┘
        cols 0-14          cols 16-31            cols 33-47
 
-The "×N" counter next to TIDB and the matching node count both grow
-(1 → 2 → 4 → 8), so the viewer sees the *number* and the *visual*
-agreeing — that's the architectural point: compute scales horizontally,
-storage stays the same.
+The visible node count IS the scale indicator — no separate counter
+needed. The S3 cylinder outline stays unchanged across all frames;
+only the compute nodes grow. That side-by-side (compute scales,
+storage doesn't) is the architectural punchline.
 
-Animation (~13 s loop at speed=200):
-    Phase 1 — Reveal: the architecture diagram draws itself in
-              (TIDB types, S3 types, cylinder fills, arrows pulse)
+Animation (~6 s loop at speed=200):
+    Phase 1 — Reveal: TIDB types in, S3 types in, cylinder draws.
     Phase 2 — Scale-out: ×1 → ×2 → ×4 → ×8, each beat held ~1 s
-              with a halo flash on the new nodes
-    Phase 3 — Sustained throughput: data dots flow continuously
-              left → right from compute to storage at full scale
+              with a halo flash on the new nodes.
 """
 
 from pathlib import Path
@@ -96,25 +95,23 @@ def draw_s3(img):
 
 
 def draw_cylinder(img, fill_fraction=1.0):
-    """Storage cylinder: rounded-cap rectangle in the bottom-right.
-    fill_fraction 0..1 controls how much is drawn (for the reveal)."""
+    """Storage cylinder outline (rectangle). No interior decoration —
+    the eye should register the shape, not parse pattern. fill_fraction
+    0..1 controls how much is drawn (for the reveal)."""
     width = CYL_RIGHT - CYL_LEFT + 1
     end_x = CYL_LEFT + int(width * fill_fraction)
-    # Top and bottom solid lines
+    # Top and bottom edges
     for x in range(CYL_LEFT, end_x):
         img.putpixel((x, CYL_TOP), 1)
         img.putpixel((x, CYL_BOT), 1)
-    # Left and right walls (only if cylinder is mostly drawn)
+    # Left edge appears once we're 20% drawn
     if fill_fraction > 0.2:
         for y in range(CYL_TOP, CYL_BOT + 1):
             img.putpixel((CYL_LEFT, y), 1)
-    if fill_fraction > 0.95:
+    # Right edge appears at the very end (closing the box)
+    if fill_fraction >= 1.0:
         for y in range(CYL_TOP, CYL_BOT + 1):
             img.putpixel((CYL_RIGHT, y), 1)
-    # Interior dot row in the middle to suggest "data inside"
-    if fill_fraction >= 1.0:
-        for x in range(CYL_LEFT + 2, CYL_RIGHT, 2):
-            img.putpixel((x, (CYL_TOP + CYL_BOT) // 2), 1)
 
 
 # Compute-node positions for each scale level. Nodes are 1-px dots in a
@@ -146,89 +143,55 @@ def draw_nodes(img, n, halo_indices=()):
                 img.putpixel((x, NODE_Y + 2), 1)
 
 
-def draw_counter(img, n):
-    """'×N' counter next to the TIDB label. Renders below TIDB at row 8-11
-    so it doesn't compete with the brand."""
-    stamp(img, f"X{n}", TIDB_X + 1, 8)
-
-
-def draw_arrow(img, x_start, x_end, frame_phase):
-    """A short horizontal stream of dots traveling from x_start to x_end at
-    ARROW_ROW. frame_phase shifts the dot pattern for animation."""
-    length = x_end - x_start
-    for i in range(length):
-        if (i + frame_phase) % 4 == 0:
-            x = x_start + i
-            if 0 <= x < W:
-                img.putpixel((x, ARROW_ROW), 1)
+def _add_frame_id_pixel(img, frame_idx):
+    """Toggle a single pixel near the top-left corner per frame so PIL
+    doesn't dedupe byte-identical settle frames during GIF encoding.
+    The pixel is at row 0 col 0 — visually negligible against the
+    architecture in rows 1-11."""
+    if frame_idx & 1:
+        img.putpixel((0, 0), 1)
 
 
 def build_frames():
     frames = []
 
-    # Phase 1 — Reveal (~3 s)
-    # 1a. TIDB types in
-    for end in range(1, 5):
+    # Phase 1 — Reveal: architecture draws itself in.
+    for end in range(1, 5):  # TIDB types in
         f = blank()
         stamp(f, "TIDB"[:end], TIDB_X, TIDB_Y)
         frames.append(f)
-    # 1b. Hold full TIDB
-    f = blank()
-    draw_tidb(f)
-    frames.append(f)
+    f = blank(); draw_tidb(f); frames.append(f)  # hold
 
-    # 1c. S3 types in
-    for end in range(1, 3):
+    for end in range(1, 3):  # S3 types in
         f = blank()
         draw_tidb(f)
         stamp(f, "S3"[:end], S3_X, S3_Y)
         frames.append(f)
-    f = blank()
-    draw_tidb(f)
-    draw_s3(f)
-    frames.append(f)
+    f = blank(); draw_tidb(f); draw_s3(f); frames.append(f)
 
-    # 1d. Cylinder fills in
-    for frac in (0.3, 0.6, 1.0):
+    for frac in (0.4, 0.7, 1.0):  # cylinder draws in
         f = blank()
         draw_tidb(f)
         draw_s3(f)
         draw_cylinder(f, fill_fraction=frac)
         frames.append(f)
 
-    # Phase 2 — Scale-out, with flowing arrows. Each level held for 6 frames.
+    # Phase 2 — Scale-out, ×1 → ×8. Each level held ~1 s.
     HOLD = 6
     for n in (1, 2, 4, 8):
-        # Spawn frame: nodes appear with halo flash
+        # Spawn frame: halo flash on new nodes
         f = blank()
-        draw_tidb(f)
-        draw_s3(f)
-        draw_cylinder(f)
-        draw_counter(f, n)
+        draw_tidb(f); draw_s3(f); draw_cylinder(f)
         draw_nodes(f, n, halo_indices=range(n))
         frames.append(f)
-
-        # Settle frames: nodes steady, arrows flowing left → right
+        # Settle frames: still scene; toggle frame-id pixel so PIL
+        # doesn't dedupe them during GIF encoding
         for hold_i in range(HOLD - 1):
             f = blank()
-            draw_tidb(f)
-            draw_s3(f)
-            draw_cylinder(f)
-            draw_counter(f, n)
+            draw_tidb(f); draw_s3(f); draw_cylinder(f)
             draw_nodes(f, n)
-            draw_arrow(f, NODE_REGION[0] + 1, CYL_LEFT, frame_phase=hold_i)
+            _add_frame_id_pixel(f, hold_i)
             frames.append(f)
-
-    # Phase 3 — Sustained throughput at ×8, dense flow
-    for phase in range(10):
-        f = blank()
-        draw_tidb(f)
-        draw_s3(f)
-        draw_cylinder(f)
-        draw_counter(f, 8)
-        draw_nodes(f, 8)
-        draw_arrow(f, NODE_REGION[0] + 1, CYL_LEFT, frame_phase=phase)
-        frames.append(f)
 
     return frames
 
