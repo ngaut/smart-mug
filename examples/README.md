@@ -37,48 +37,66 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-**"Breath"** — a horizontal storage line through the middle of the
-display, with compute dots breathing in and out around it.
+**"Murmuration"** — a flock of pixel-birds streams in chaotic from
+the right edge, gradually converges, **assembles into the letters
+TIDB** for one beat, then bursts outward and flies off. Then a fresh
+flock streams in. Loop forever.
 
 ```
-                       compute dots (breathing)
-       . . .  .  .  .  .  .  .  .  .  .  .  .
-     .   .  .  . .  .  .  .  . . .  . . . . .
-████████████████████████████████████████████████  ← storage
-     . . .  . . . .  . .  .  .  .  .  .  . . .
-       . . . . . . . . . . . . . . . . . . .
-                       compute dots (breathing)
+   ←── chaos: flock drifting leftward, scattered ───────
+
+         . .   . .              .  .   .
+            .         .   .   .       .       .
+       .       .   .             .       .  .
+
+   ─── converging ─────────────────────────────────────
+
+                ▮▮▮▮▮  ▮  ▮▮▮▮·  ▮▮▮▮·
+                  ▮       ▮   ▮  ▮   ▮
+                  ▮     ▮ ▮   ▮  ▮▮▮▮·     ← *click!*  TIDB
+                  ▮     ▮ ▮   ▮  ▮   ▮       holds for
+                  ▮     ▮ ▮   ▮  ▮   ▮       one breath
+                  ▮     ▮ ▮   ▮  ▮   ▮
+                  ▮     ▮ ▮▮▮▮·  ▮▮▮▮·
+
+   ─── dispersing: flock bursts outward and flies off ──
+
+       .                                   .
+              .         .                .
+                  .            .
+
+       (empty for a beat) ...
+   ←── new flock streams in (loop) ──────────────────
 ```
 
-The storage line never moves, never blinks, never changes — every
-frame, every loop, forever. Above and below, the compute population
-expands from near-zero to ~50 dots, then contracts back, on an eased
-sin² curve. One full breath cycle ≈ 9 s at speed=200, close to a
-slow human breath rate. **The cup literally breathes with you.**
+A 55-bird flocking simulation with hand-rolled physics, not a generic
+effect. Each bird is a pixel with position + velocity; targets are
+assigned by left-to-right distance during the converge phase so the
+flock settles cleanly into the letters; dispersal velocity is
+outward-from-center so birds fly off the edges naturally.
 
-This is the *only* property of TiDB Next-Gen worth encoding on a
-hand-held LED at this scale: **ephemeral compute against permanent
-shared storage**. No labels, no diagrams, no counter — the metaphor
-is the entire content. The line is the axis of symmetry for the
-compute breath, so the eye sees that compute and storage are
-categorically different things: one persists, the other comes and
-goes.
+**Why this works on a coffee cup**:
 
-55 frames after PIL dedup (60 generated). Long meditative loop
-suited to ambient viewing.
+- Visually arresting. Flocks captivate at any scale.
+- Has an actual *surprise* — the moment of assembly is a real
+  punchline, not just a transition.
+- Captures the *cultural* shape of TiDB (many distributed pieces
+  resolving into a single coherent product) without being a
+  literal architectural diagram.
+- Loops cleanly. The moment of formation is something you'd want
+  to wait for again.
 
-Design history — eight iterations to get here:
-v1 busy 4-tier diagram → v2 abstract slab → v3 scrolling text →
-v4 labeled diagram with counter → v5 decluttered diagram →
-v6 dropped TIDB label, animated workload tracks → v7 telemetry
-dashboard with climbing magnitudes → **v8 (this version)**.
+62 frames at speed=200 ≈ 9.9 s per loop.
 
-The meta-lesson: **a coffee-mug LED can carry exactly one metaphor**,
-chosen for the *single distinctive property* of the system it
-represents. Versions 1–7 all tried to encode multiple architectural
-properties simultaneously and failed. The final cut picks one
-property — *ephemeral compute, permanent storage* — and shows nothing
-else.
+Design history — nine iterations:
+v1 4-tier diagram (busy) → v2 abstract slab → v3 scrolling text →
+v4 labeled diagram with counter (cluttered) → v5 decluttered diagram
+→ v6 animated workload tracks → v7 telemetry dashboard → v8 ambient
+breathing → **v9 (this version): pixel-bird murmuration with
+brand-assembly punchline**. The lesson the iterations teach: when
+"explain the architecture" doesn't fit the medium, do something
+*genuinely creative* whose punchline IS the brand identity. The
+cup's job is to be a surprise on a coffee table, not a slide.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
