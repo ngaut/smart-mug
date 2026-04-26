@@ -316,27 +316,27 @@ class BLEManager {
     return arr;
   }
 
-  // Read version information
+  // Read firmware version. Returns a string "major.minor" (e.g. "1.6") —
+  // the cup returns 4 payload bytes after the feature byte; the official
+  // parser at app-service.pretty.js:53402 uses the last two for major.minor.
   async readVersion() {
-    if (!this.server) {
-      throw new Error("Not connected to device");
+    const resp = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x09, 0x00]);
+    if (resp.length >= 2) {
+      return `${resp[resp.length - 2]}.${resp[resp.length - 1]}`;
     }
-
-    try {
-      const ver_info = await this.executeCommand([
-        0xff, 0x55, 0x07, 0x00, 0x01, 0x09, 0x00,
-      ]);
-      const version = [...ver_info];
-      return `${version}`;
-    } catch (error) {
-      throw new Error(`Failed to read version: ${error.message}`);
-    }
+    return Array.from(resp).join('.');
   }
 
-  // Read temperature: FF 55 07 00 01 01 00. Response payload's last byte = °C.
+  // Read current liquid temperature in °C (last payload byte, unsigned).
   async readTemperature() {
-    const response = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x01, 0x00]);
-    return response[response.length - 1];
+    const resp = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x01, 0x00]);
+    return resp[resp.length - 1];
+  }
+
+  // Read battery level (percent, 0..100).
+  async readBattery() {
+    const resp = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x02, 0x00]);
+    return resp[resp.length - 1];
   }
 
   /**
@@ -421,7 +421,12 @@ class BLEManager {
    * with 100 ms backoff on per-frame failure.
    *
    * @param {Array<Array<Array<number>>>} frames  Array of 12×48 grids.
-   * @param {number} speed                         1 byte (default 130).
+   *     Each frame is pre-validated *before* the prologue is sent so a
+   *     bad frame can't leave the cup half-loaded.
+   * @param {number} speed  1..255, larger = faster. 0 produces unspecified
+   *     behavior on the cup. Default 130 matches the official app's
+   *     `speedValue` and produces ~1 second per 4-frame cycle (exact unit
+   *     not yet quantified — see PROTOCOL_SPEC.md §4.6).
    */
   async setAnimation(frames, speed = 130) {
     if (!this.server) throw new Error("Not connected to device");
@@ -430,7 +435,7 @@ class BLEManager {
     }
     if (frames.length > 255) throw new Error("Max 255 frames");
     if (!Number.isInteger(speed)) throw new Error("speed must be an integer");
-    if (speed < 0 || speed > 255) throw new Error("speed must be 0..255");
+    if (speed < 1 || speed > 255) throw new Error("speed must be 1..255 (0 is unspecified by firmware)");
 
     // Pre-pack every frame BEFORE acquiring the mutex / sending the prologue.
     // If any frame has the wrong shape, we throw upfront with frame-index

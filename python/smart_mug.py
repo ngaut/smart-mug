@@ -308,27 +308,75 @@ class BLEManager:
 
         Timing matches the official app: 20 ms pre-guard on the prologue,
         100 ms post-prologue, 150 ms between successful frames, 10× retry
-        with 100 ms backoff on per-frame failure."""
+        with 100 ms backoff on per-frame failure.
+
+        :param frames: list of 12×48 grids (0/1 ints) or list of 72-byte
+            bytes objects. Each frame is pre-validated *before* the prologue
+            is sent so a bad frame can't leave the cup half-loaded.
+        :param speed: 1..255, larger = faster. 0 produces unspecified
+            behavior on the cup. Default 130 matches the official app's
+            `speedValue` and produces ~1 second per 4-frame cycle (exact
+            unit not yet quantified — see PROTOCOL_SPEC.md §4.6).
+        """
         if not frames:
             raise ValueError("At least one frame required")
         if len(frames) > 255:
             raise ValueError("Max 255 frames")
-        if not 0 <= speed <= 255:
-            raise ValueError("speed must be 0..255")
+        if not 1 <= speed <= 255:
+            raise ValueError("speed must be 1..255 (0 is unspecified by firmware)")
+
+        # Pre-pack all payloads BEFORE acquiring the mutex / sending the
+        # prologue. A bad frame mid-upload would leave the cup expecting
+        # more frames than it gets — corrupted animation state.
+        payloads = []
+        for idx, frame in enumerate(frames):
+            try:
+                payloads.append(self._bitmap_payload(frame, f"frame {idx}"))
+            except ValueError as e:
+                raise ValueError(f"frame {idx}: {e}") from e
 
         async with self._lock:
             n = len(frames)
             await self._write([0xFF, 0x55, 0x08, 0x00, 0x02, 0x26, n, speed])
             await asyncio.sleep(ANIM_PROLOGUE_DELAY_S)
 
-            for idx, frame in enumerate(frames):
-                payload = self._bitmap_payload(frame, f"frame {idx}")
+            for idx, payload in enumerate(payloads):
                 cmd = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x26, idx, speed] + list(payload)
                 cmd[2] = len(cmd)  # 0x50 (80)
                 await self._write_frame_with_retry(cmd)
                 if idx < n - 1:
                     await asyncio.sleep(ANIM_FRAME_DELAY_S)
         return True
+
+    # ------------------------------------------------------------------
+    # Read commands — convenience wrappers around execute_command for
+    # the read paths the cup's receive parser handles.
+    # ------------------------------------------------------------------
+
+    def is_connected(self):
+        """True when the underlying BleakClient is connected."""
+        return self.client is not None and self.client.is_connected
+
+    async def read_temperature(self):
+        """Read the cup's current liquid temperature (°C, unsigned byte)."""
+        resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x01, 0x00])
+        return resp[-1]
+
+    async def read_battery(self):
+        """Read the cup's battery level (percent, 0..100)."""
+        resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x02, 0x00])
+        return resp[-1]
+
+    async def read_version(self):
+        """Read the cup's firmware version as 'major.minor' (e.g. '1.6').
+
+        The cup returns 4 payload bytes after the feature byte; the official
+        parser at app-service.pretty.js:53402 reads the last two for the
+        major.minor pair (with the trailer already stripped)."""
+        resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x09, 0x00])
+        if len(resp) >= 2:
+            return f"{resp[-2]}.{resp[-1]}"
+        return ".".join(str(b) for b in resp)
 
 
 # Image Processing
@@ -739,8 +787,8 @@ async def cmd_animate(args):
     if not path:
         print("Error: specify a GIF (or other multi-frame image) file")
         return 1
-    if not 0 <= speed <= 255:
-        print(f"Error: speed must be 0..255, got {speed}")
+    if not 1 <= speed <= 255:
+        print(f"Error: speed must be 1..255, got {speed}")
         return 1
 
     print(f"Loading frames from {path}...")
@@ -763,6 +811,33 @@ async def cmd_animate(args):
         return 1
 
 
+async def cmd_read(args):
+    """Read one or more device fields. Useful for diagnostics."""
+    fields = [a for a in args if not a.startswith("-")]
+    if not fields:
+        fields = ["version", "temperature", "battery"]  # default: read all
+    valid = {"version", "temperature", "temp", "battery", "all"}
+    if "all" in fields:
+        fields = ["version", "temperature", "battery"]
+    bad = [f for f in fields if f not in valid]
+    if bad:
+        print(f"Error: unknown field(s) {bad}. Valid: version, temperature, battery, all")
+        return 1
+    try:
+        async with connected_manager(args) as m:
+            for f in fields:
+                if f == "version":
+                    print(f"version:     {await m.read_version()}")
+                elif f in ("temperature", "temp"):
+                    print(f"temperature: {await m.read_temperature()} °C")
+                elif f == "battery":
+                    print(f"battery:     {await m.read_battery()} %")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 REPL_HELP = """
 REPL commands:
   msg <text>           Send greeting (empty after `msg ` clears)
@@ -770,6 +845,8 @@ REPL commands:
   image <file> [opts]  Upload image (-t N, -i, -d)
   animate <gif> [opts] Upload animation (-t N, -i, -d, -s SPEED)
   test                 Upload checkerboard test pattern
+  read [field ...]     Read version / temperature / battery (default: all)
+  status               Alias for `read all`
   help                 Show this help
   exit | quit          Leave the REPL
 """
@@ -818,6 +895,22 @@ async def _repl_dispatch(manager, cmd, cmd_args):
         print(f"Uploading at speed={speed}...")
         await manager.set_animation(frames, speed=speed)
         print("✓ Animation uploaded — playing autonomously")
+    elif cmd in ("read", "status"):
+        fields = [a for a in cmd_args if not a.startswith("-")]
+        if not fields or "all" in fields or cmd == "status":
+            fields = ["version", "temperature", "battery"]
+        for f in fields:
+            try:
+                if f == "version":
+                    print(f"  version:     {await manager.read_version()}")
+                elif f in ("temperature", "temp"):
+                    print(f"  temperature: {await manager.read_temperature()} °C")
+                elif f == "battery":
+                    print(f"  battery:     {await manager.read_battery()} %")
+                else:
+                    print(f"  ❌ unknown field {f!r} (version/temperature/battery)")
+            except Exception as e:
+                print(f"  ❌ {f}: {type(e).__name__}: {e}")
     elif cmd == "help":
         print(REPL_HELP)
     else:
@@ -881,6 +974,7 @@ Commands:
   image <file> [opts] [--rescan]              Upload static image
   image --test [--rescan]                     Upload test pattern
   animate <gif> [opts] [-s SPEED] [--rescan]  Upload animation (cup plays it)
+  read [field ...] [--rescan]                 Read version / temperature / battery
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
   clear-cache                                 Forget cached device
 
@@ -890,11 +984,14 @@ Examples:
   uv run smart_mug.py mode flashing
   uv run smart_mug.py image photo.png -d
   uv run smart_mug.py animate fire.gif -d -s 100
+  uv run smart_mug.py read temperature battery
+  uv run smart_mug.py read                    (= all three fields)
   uv run smart_mug.py repl --host 0.0.0.0 --port 8888
 
 Modes:        static | scrollRight | scrollLeft | flashing
+Read fields:  version | temperature | battery | all (default: all)
 Image opts:   -t N (threshold 0-255), -i (invert), -d (Floyd-Steinberg dither)
-Animate opts: image opts + -s/--speed N (default 130, see PROTOCOL_SPEC.md)
+Animate opts: image opts + -s/--speed N (1-255, larger = faster, default 130)
 
 Global flags:
   --rescan       Force a fresh BLE scan (ignore cached device)
@@ -920,6 +1017,8 @@ async def main():
         return await cmd_image(sys.argv[2:])
     elif cmd in ('animate', 'anim', 'gif'):
         return await cmd_animate(sys.argv[2:])
+    elif cmd == 'read':
+        return await cmd_read(sys.argv[2:])
     elif cmd == 'repl':
         return await cmd_repl(sys.argv[2:])
     elif cmd == 'clear-cache':
