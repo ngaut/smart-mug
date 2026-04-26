@@ -37,48 +37,53 @@ you can upload without re-rendering.)
 
 ### `tidb_nextgen_animation.py` → `tidb_nextgen.gif`
 
-A telemetry dashboard for TiDB Next-Gen. **Stops trying to be an
-architecture diagram** (which doesn't fit 48×12) and instead shows
-what the architecture delivers: enormous, climbing scale.
+**"Rising"** — an ambient animation. A drifting horizon line near
+the bottom; sparks rising from below, drifting horizontally as they
+ascend, dissolving at the top, continuously regenerating.
 
-```
-   ┌─────────────────────────────┐
-   │           1M                │     ← climbing magnitude (8 rows tall)
-   │                             │
-   │                             │
-   ├─────────────────────────────┤
-   │ ▓▓▓▓▓▓▓▓▓░░░░░░░ 65%        │     ← load bar (fills as N climbs)
-   └─────────────────────────────┘
-```
+No labels, no diagrams, no numbers. The image is meant to be
+beautiful at hand-holding distance, glanced at while sipping coffee,
+inviting someone to ask "what is that?" — at which point the
+TiDB-branded cup does the rest.
 
-The counter ticks **1K → 10K → 100K → 1M → 10M → ∞**, each value
-held for ~1 second. The load bar fills proportionally on each step
-(5% → 20% → 45% → 65% → 85% → 100%). On the ∞ frame the whole
-display flashes inverse, then the loop resets.
+What it implies, without stating:
 
-40 frames at speed=200 ≈ 6.4 s per loop. Loop reads instantly as
-"system handling massive load and keeping up".
+- **Growth, scaling, infinity** — everything keeps rising
+- **Distribution** — many independent particles
+- **Architectural foundation** — the horizon as a floor
+- **Aliveness** — constant motion, never finished
 
-Design history (long version):
+What it stops trying to do:
 
-- **v1**: 4-tier diagram with drifting wave + flicker + trails. Too
-  busy.
-- **v2**: Static 2-tier slab. Too abstract without prior context.
-- **v3**: Pure scrolling text. Too thin, no architectural content.
-- **v4**: Labeled diagram with `×N` counter and animated arrows.
-  Cluttered.
-- **v5**: Decluttered diagram (TIDB + nodes + S3 + cylinder). Better,
-  but the static labels were doing a lot of work.
-- **v6**: Removed TIDB label, used animated incoming-workload tracks
-  in its place. Better directionality but still a diagram.
-- **v7 (this version)**: Backed up two levels and reframed entirely.
-  A 48×12 LED matrix can't render multi-tier architecture, but it
-  can render a *climbing magnitude with a load bar*. That's the
-  shape of the medium. Numbers and bars need no decoding; the
-  dashboard reads at a glance.
+- Teach distributed-systems architecture
+- Render labels for layers
+- Explain compute/storage separation
+- Be a slide-deck figure on a 48×12 LED matrix
 
-The lesson: **match the visualization to the canvas's geometry, not
-to the prose description of the system**.
+80 frames at speed=200 ≈ 13 s per loop. Long, meditative; designed
+for ambient viewing rather than instant comprehension.
+
+Design history (so future-you doesn't repeat the iterations):
+
+- **v1**: Busy 4-tier diagram with drifting wave + flicker + trails.
+- **v2**: Static 2-tier slab — too abstract without context.
+- **v3**: Pure scrolling text marquee — too thin.
+- **v4**: Labeled diagram with `×N` counter + animated arrows —
+  cluttered.
+- **v5**: Decluttered labeled diagram — readable but flat.
+- **v6**: Removed TIDB label, used animated workload tracks instead.
+- **v7**: Telemetry dashboard with climbing magnitude (1K → ∞).
+- **v8 (this version)**: Stopped trying to *teach* the architecture
+  on a coffee mug LED. The display's job is to be beautiful and
+  evocative; the physical cup is already TiDB-branded; the brand
+  meaning lives in the viewer's head, not in re-rendered pixels.
+  Particles rising from a horizon imply scale and aliveness without
+  stating them.
+
+The meta-lesson the iteration history teaches: **the medium has its
+own grammar**. A coffee mug LED is ambient art with a brand attached,
+not a teaching tool. Match the artifact to its medium, not to the
+prose description of the system it represents.
 
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
