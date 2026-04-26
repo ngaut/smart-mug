@@ -340,6 +340,48 @@ class BLEManager {
   }
 
   /**
+   * Set the cup's auto-screen-off feature flag.
+   *
+   * Frame: FF 55 07 00 02 27 <byte>. Empirically (probed against
+   * SGUAI-C3 fw 1.6) this byte is a *boolean*, not a seconds counter
+   * as the protocol spec originally implied: any non-zero value reads
+   * back as 1, only 0 reads back as 0.
+   *
+   *   setAutoOff(0)  → auto-off disabled (display stays alive)
+   *   setAutoOff(1)  → auto-off enabled (firmware default)
+   *
+   * Side effect: with the flag disabled, the cup may stop appearing
+   * in fresh BLE scans while it's actively driving the panel
+   * (PROTOCOL_SPEC.md §4.7).
+   */
+  async setAutoOff(value) {
+    if (!this.server) throw new Error("Not connected to device");
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      throw new Error("value must fit in one byte (0..255)");
+    }
+    const command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x27, value];
+    const unlock = await this._mutex.acquire();
+    try {
+      try {
+        await this._executeLocked(command, 10000);
+      } catch (err) {
+        // Like setDynamicMode, the cup occasionally drops the echo for
+        // a config write. The BLE-layer ACK is enough.
+        if (err.message !== "Device response timeout") throw err;
+      }
+      return true;
+    } finally {
+      unlock();
+    }
+  }
+
+  // Read the auto-screen-off flag (0 = disabled, 1 = enabled).
+  async readAutoOff() {
+    const resp = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x27, 0x00]);
+    return resp[resp.length - 1];
+  }
+
+  /**
    * Set greeting text. Empty string clears the display.
    *
    * Matches the official page-level path (sub-service.pretty.js:4083-88):
@@ -427,8 +469,13 @@ class BLEManager {
    *     behavior on the cup. Default 130 matches the official app's
    *     `speedValue` and produces ~1 second per 4-frame cycle (exact unit
    *     not yet quantified — see PROTOCOL_SPEC.md §4.6).
+   * @param {Object} [opts]
+   * @param {boolean} [opts.keepAlive=true]  When true (default), disables
+   *     the cup's auto-screen-off before uploading frames so the loop
+   *     plays continuously after disconnect. Set false to preserve the
+   *     existing auto-off setting (firmware default = enabled).
    */
-  async setAnimation(frames, speed = 130) {
+  async setAnimation(frames, speed = 130, opts = {}) {
     if (!this.server) throw new Error("Not connected to device");
     if (!Array.isArray(frames) || frames.length === 0) {
       throw new Error("frames must be a non-empty array");
@@ -436,6 +483,8 @@ class BLEManager {
     if (frames.length > 255) throw new Error("Max 255 frames");
     if (!Number.isInteger(speed)) throw new Error("speed must be an integer");
     if (speed < 1 || speed > 255) throw new Error("speed must be 1..255 (0 is unspecified by firmware)");
+
+    const keepAlive = opts.keepAlive !== false;
 
     // Pre-pack every frame BEFORE acquiring the mutex / sending the prologue.
     // If any frame has the wrong shape, we throw upfront with frame-index
@@ -445,6 +494,18 @@ class BLEManager {
       try { return packBitmap(f); }
       catch (err) { throw new Error(`frame ${idx}: ${err.message}`); }
     });
+
+    // Keep-alive runs OUTSIDE the per-upload mutex acquisition because
+    // setAutoOff already takes the mutex itself; nesting would deadlock.
+    // A failure here is non-fatal — the animation can still upload, it
+    // just may sleep mid-playback.
+    if (keepAlive) {
+      try {
+        await this.setAutoOff(0);
+      } catch (err) {
+        console.warn(`Could not disable auto-off (${err.message}); animation may sleep mid-loop`);
+      }
+    }
 
     const unlock = await this._mutex.acquire();
     try {

@@ -8,7 +8,7 @@ class ImageEditor {
 
     this.grid = Array(this.IMAGE_HEIGHT)
       .fill()
-      .map(() => Array(this.IMAGE_WIDTH).fill(0)); // 0 = white, 1 = black
+      .map(() => Array(this.IMAGE_WIDTH).fill(0)); // 0 = LED off, 1 = LED on
     this.isDrawing = false;
     this.currentTool = "draw"; // draw, erase, clear, fill
   }
