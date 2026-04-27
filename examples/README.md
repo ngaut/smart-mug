@@ -73,7 +73,13 @@ prevail* — and the brand-assembly is the *punchline of the story*, not
 the whole content. Loops cleanly because the collapse-back lands
 exactly on the Act I cluster geometry.
 
-59 frames at speed=200 ≈ 9.4 s per loop.
+132 frames at speed=200 ≈ 21 s per loop. The full storyboard runs ~169
+frames but the cup's fw 1.7 animation buffer caps at 132 frames
+(see `PROTOCOL_SPEC.md §4.6`); the generator trims to 132 so the
+upload doesn't crash mid-stream. The shipped `tidb_nextgen.gif`
+focuses on the early acts; later beats (vertical scan, scatter+reform,
+3D rotation, glitch+heal, constellation) are kept in the source for
+future cup firmware that lifts the limit.
 
 Design history — ten iterations:
 v1 4-tier diagram (busy) → v2 abstract slab → v3 scrolling text →
@@ -113,7 +119,10 @@ If you're authoring an animation for this cup, keep the constraints in
 mind:
 
 - **48 wide × 12 tall**, 1-bit monochrome
-- **Up to 255 frames** per animation (uploaded once, played autonomously)
+- **Up to 132 frames** per animation on SGUAI-C3 fw 1.7. The protocol
+  byte allows 255 but the cup's animation buffer caps at 132; uploads
+  larger than that drop the GATT link mid-stream and leave the cup
+  BLE-unreachable until physical wake (see `PROTOCOL_SPEC.md §4.6`).
 - **Speed byte 1..255**, larger = faster. Default 130 ≈ 250 ms/frame;
   255 ≈ 127 ms/frame. The unit isn't strictly milliseconds (see
   `PROTOCOL_SPEC.md` §4.6) but the relationship is monotonic.

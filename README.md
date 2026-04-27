@@ -136,7 +136,9 @@ Upload animated GIFs and play them across all 4 cups with optional motion effect
 - Animation upload: ~150 ms per frame (was ~3 s on the legacy streaming path)
 - Cup-side playback: autonomous after upload, no BLE traffic needed
 - Speed byte derived from the GIF's average inter-frame delay, clamped to 1–255
-- Supports GIFs with up to 255 frames
+- Supports GIFs with up to 132 frames on SGUAI-C3 fw 1.7 (the protocol
+  byte allows 255 but the cup's buffer caps at 132 — see
+  [`PROTOCOL_SPEC.md §4.6`](PROTOCOL_SPEC.md))
 - Each frame is dithered and split across 4 cups
 - Graceful fallback when no cups connected (preview-only mode)
 

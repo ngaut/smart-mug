@@ -961,6 +961,24 @@ def main():
     frames = build_frames()
     if len(frames) > 255:
         raise RuntimeError(f"frame count {len(frames)} exceeds protocol limit")
+
+    # SGUAI-C3 fw 1.7 only buffers 132 frames at upload — see
+    # PROTOCOL_SPEC.md §4.6. The full storyboard above produces ~169
+    # frames; we keep the first 132 (the beginning of the story:
+    # Acts I-IV climax + early coda through the data-flow / heartbeat /
+    # T-I-D-B announce / sonar). Beats that fit later in the loop
+    # (vertical scan, scatter+reform, 3D rotation, glitch+heal,
+    # constellation, collapse) are preserved in the storyboard but
+    # not shipped in the on-cup animation. The loop-back boundary is
+    # less polished without the explicit collapse-to-cluster frames,
+    # but the eye still reads the abrupt return as a "reset".
+    CUP_MAX_FRAMES = 132
+    if len(frames) > CUP_MAX_FRAMES:
+        full = len(frames)
+        frames = frames[:CUP_MAX_FRAMES]
+        print(f"! trimmed from {full} to {CUP_MAX_FRAMES} frames "
+              f"(SGUAI-C3 fw 1.7 buffer limit)")
+
     out = Path(__file__).resolve().parent / "tidb_nextgen.gif"
     frames[0].save(
         out,
