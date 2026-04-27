@@ -205,6 +205,27 @@ class BLEManager {
         this.handleResponse.bind(this)
       );
 
+      // Brief settle before the firmware-version handshake (the
+      // official APK waits 500 ms here).
+      await sleep(500);
+
+      // Firmware-version handshake — the official APK reads firmware
+      // immediately after subscribing and treats it as the "session
+      // ready" gate (app-service.pretty.js:49572-49582). Without this
+      // read, persistent-config writes (notably 0x27 auto-off) appear
+      // to leave the cup's BLE module in a state that prevents
+      // reconnection after disconnect. Failure here is non-fatal —
+      // older firmware may not respond to 0x09.
+      try {
+        const version = await this.readVersion();
+        console.log(`✓ Handshake: firmware ${version}`);
+      } catch (err) {
+        console.warn(
+          `⚠ Firmware handshake failed (${err.message}); persistent-config ` +
+          `writes (auto-off) may leave the cup unreachable after disconnect.`
+        );
+      }
+
       return true;
     } catch (error) {
       this.server = null;
@@ -388,8 +409,11 @@ class BLEManager {
   }
 
   // Read the auto-screen-off duration code (0..4). See setAutoOff.
+  // 6-byte form (no trailing data byte) — matches the official APK
+  // at app-service.pretty.js:51525. Other reads use 7 bytes with a
+  // 0x00 terminator; this specific feature byte is the exception.
   async readAutoOff() {
-    const resp = await this.executeCommand([0xFF, 0x55, 0x07, 0x00, 0x01, 0x27, 0x00]);
+    const resp = await this.executeCommand([0xFF, 0x55, 0x06, 0x00, 0x01, 0x27]);
     return resp[resp.length - 1];
   }
 

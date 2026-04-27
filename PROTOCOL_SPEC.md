@@ -443,9 +443,11 @@ Bytes:  FF   55   07   00   02   27   <code>
 - `<code>`: `0..4` per the table above.
 
 **Read Frame:** the official APK uses a 6-byte read with no trailing
-data byte (`FF 55 06 00 01 27`), but the cup also accepts the 7-byte
-form (`FF 55 07 00 01 27 00`) we use for symmetry with the rest of
-the read commands. Last payload byte is the active code.
+data byte (`FF 55 06 00 01 27`). Our implementation uses the same
+6-byte form. The cup empirically also accepts the 7-byte
+(`FF 55 07 00 01 27 00`) form, but matching the APK's exact wire
+format is preferred so that session-state behavior is predictable.
+Last payload byte of the response is the active code.
 
 **Use case:** for animation playback or always-on dashboard scenarios,
 send `set 0` (常亮) once after connecting. Persistence across power

@@ -172,12 +172,33 @@ class BLEManager:
 
     async def connect(self, device):
         """Connect to device. Accepts a BLEDevice or a raw address string
-        (the latter from the direct-connect path in find_device)."""
+        (the latter from the direct-connect path in find_device).
+
+        Mirrors the official APK's post-connect sequence
+        (app-service.pretty.js:49445-49582):
+
+          1. createBLEConnection
+          2. wait 2000 ms (link stabilization)
+          3. setBLEMTU(500) on Android (best-effort here)
+          4. wait 2000 ms (post-MTU stabilization)
+          5. discover services + characteristics
+          6. subscribe to response characteristic
+          7. wait 500 ms
+          8. **handshake**: read firmware version (0x09).
+             The cup's firmware appears to require this read before it
+             treats the GATT session as fully initialized — without it,
+             persistent-config writes (0x27 auto-off in particular) can
+             leave the BLE module in a state that breaks reconnection
+             after disconnect.
+          9. wait up to 5000 ms for the firmware response.
+        """
         addr = device if isinstance(device, str) else device.address
         print(f"Connecting to {addr}...")
         self.client = BleakClient(device)
         await self.client.connect()
-        await asyncio.sleep(1)
+
+        # Step 2: post-connect stabilization (official: 2000 ms)
+        await asyncio.sleep(2.0)
 
         # Verify service exists
         service_found = False
@@ -203,8 +224,24 @@ class BLEManager:
         if mtu:
             print(f"✓ MTU: {mtu} (official app requests {REQUESTED_MTU})")
 
-        # Enable notifications
+        # Step 6: subscribe to notifications
         await self.client.start_notify(RESPONSE_CHAR_UUID, self.response_handler)
+
+        # Step 7: brief settle before handshake (official: 500 ms)
+        await asyncio.sleep(0.5)
+
+        # Step 8: firmware-version handshake. The official app treats
+        # this read as the "session ready" gate; if it doesn't come back
+        # within 5 s, it disconnects. We log on failure but still surface
+        # a connected session — older cups may not respond to 0x09.
+        try:
+            version = await self.read_version()
+            print(f"✓ Handshake: firmware {version}")
+        except Exception as e:
+            print(f"⚠ Firmware handshake failed ({type(e).__name__}: {e}); "
+                  "subsequent persistent-config writes (e.g. auto-off) "
+                  "may leave the cup in a state that prevents reconnect.")
+
         print("✓ Connected successfully")
         return True
 
@@ -429,10 +466,13 @@ class BLEManager:
     async def read_auto_off(self):
         """Read the current auto-screen-off duration code (0..4).
 
-        See :py:meth:`set_auto_off` and :py:attr:`AUTO_OFF_CODES` for
-        the human-readable label of each code.
+        Frame: ``FF 55 06 00 01 27`` (6 bytes, no trailing data byte).
+        This matches the official APK at ``app-service.pretty.js:51525``.
+        Most other read commands use the 7-byte form with a trailing
+        ``0x00``, but the official explicitly uses 6 bytes for this
+        specific feature byte. See PROTOCOL_SPEC.md §4.7.
         """
-        resp = await self.execute_command([0xFF, 0x55, 0x07, 0x00, 0x01, 0x27, 0x00])
+        resp = await self.execute_command([0xFF, 0x55, 0x06, 0x00, 0x01, 0x27])
         return resp[-1]
 
     async def read_version(self):
