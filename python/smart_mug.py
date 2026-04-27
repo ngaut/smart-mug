@@ -106,33 +106,34 @@ class BLEManager:
         except OSError as e:
             _warn(f"could not clear cache: {e}")
 
-    async def find_device(self, use_cache=True):
-        """Locate the cup. Tries the cached address first (direct connect,
-        then 5 s scan), then falls back to a 15 s scan with auto-select
-        on name match.
+    async def find_device(self, use_cache=True, force_addr=None):
+        """Locate the cup. Tries (in order): explicit ``force_addr`` →
+        cached address → BLE scan with name match.
+
+        ``force_addr``: if given, returned as-is so ``connect()`` will
+        attempt a direct connect-by-address. Use this when the user has
+        multiple SGUAI-C3 cups paired and needs to pin tests to one.
 
         Direct connect-by-address bypasses the scan entirely — useful
-        when the cup has auto-off disabled (§4.7) and may not appear
-        in scans while it's actively driving the panel.
+        when the cup is in §4.7's silent-BLE animation-playback state
+        and may not appear in scans even though it's reachable.
+
+        When ``≥2`` SGUAI-C3 devices appear in a scan, this method
+        refuses to auto-select silently — it raises with the list of
+        candidate addresses, so the caller can disambiguate via
+        ``force_addr``. Picking randomly between identically-named
+        cups produced confusing test results in the past.
         """
+        if force_addr:
+            print(f"Using explicit address: {force_addr}")
+            return force_addr
+
         if use_cache:
             cache = _load_cache()
             cached_addr = cache.get("address")
             if cached_addr:
                 print(f"Cached device: {cache.get('name')} ({cached_addr})")
-                # Try the address as-is. If `connect()` succeeds the
-                # session is reusable; if not, the OS has aged out the
-                # cup from its peripheral cache and we fall back to
-                # scan. We do NOT probe-then-disconnect here — that
-                # destroys the very OS-level cache state the upcoming
-                # connect() needs, so the second connect would fail
-                # with "Device not found" even though the cup is
-                # reachable.
                 try:
-                    # Lightweight reachability check via brief scan.
-                    # If the cached UUID is in scan results, return
-                    # the live BLEDevice; otherwise return the address
-                    # string so connect() can still try direct.
                     for d in await BleakScanner.discover(timeout=5.0):
                         if d.address == cached_addr:
                             print("✓ Cached device available")
@@ -141,8 +142,6 @@ class BLEManager:
                     print(f"⚠ Cache scan failed ({type(e).__name__}); trying direct connect...")
                 else:
                     print(f"⚠ Cached device not advertising; trying direct connect by address...")
-                # Fall back to direct address — connect() may still
-                # succeed if the OS has the peripheral cached.
                 return cached_addr
 
         print("Scanning for BLE devices...")
@@ -154,11 +153,25 @@ class BLEManager:
         for i, d in enumerate(devices):
             print(f"  {i+1}. {d.name} ({d.address})")
 
-        for d in devices:
-            if d.name == self.device_name or d.name.startswith(self.device_name):
-                print(f"\nAuto-selected: {d.name}")
-                _save_cache(d.address, d.name)
-                return d
+        # Collect ALL name-matches before deciding what to do — picking
+        # the first match silently was the source of two-cup test
+        # confusion (different cups won the coin flip on different runs).
+        matches = [
+            d for d in devices
+            if d.name == self.device_name or d.name.startswith(self.device_name)
+        ]
+        if len(matches) == 1:
+            d = matches[0]
+            print(f"\nAuto-selected: {d.name} ({d.address})")
+            _save_cache(d.address, d.name)
+            return d
+        if len(matches) > 1:
+            addrs = "\n  ".join(f"{d.name} ({d.address})" for d in matches)
+            raise Exception(
+                f"Multiple {self.device_name} devices found — refusing to "
+                f"auto-pick:\n  {addrs}\n"
+                f"Re-run with --addr <UUID> to select one explicitly."
+            )
 
         try:
             choice = int(input(f"\nEnter device number (1-{len(devices)}): ").strip())
@@ -748,13 +761,26 @@ curl -X POST 'http://localhost:8080/api/test?pattern=border'
 
 # CLI Commands
 
+def _flag_value(args, name):
+    """Return the value following `--flag` in args, or None."""
+    if name in args:
+        i = args.index(name)
+        if i + 1 < len(args):
+            return args[i + 1]
+    return None
+
+
 @asynccontextmanager
 async def connected_manager(args):
     """Open a connected BLEManager, yield it, then disconnect cleanly.
-    Honors `--rescan` in args. Use as: `async with connected_manager(args) as m:`."""
+    Honors `--rescan` and `--addr <UUID>` in args. Use as:
+    ``async with connected_manager(args) as m:``"""
     manager = BLEManager()
     try:
-        device = await manager.find_device(use_cache="--rescan" not in args)
+        device = await manager.find_device(
+            use_cache="--rescan" not in args,
+            force_addr=_flag_value(args, "--addr"),
+        )
         await manager.connect(device)
         yield manager
     finally:
@@ -764,8 +790,8 @@ async def connected_manager(args):
 # Flags that don't belong to any cmd-specific parser but appear in CLI args.
 # Listed here so _parse_image_opts knows to consume them silently rather than
 # warning, and `_first_positional` knows how many args to skip past.
-_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive"}
-_GLOBAL_FLAGS_WITH_VALUE = {"--mode", "--host", "--port"}
+_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive", "--addr"}
+_GLOBAL_FLAGS_WITH_VALUE = {"--mode", "--host", "--port", "--addr"}
 
 VALID_MODES = ("static", "scrollRight", "scrollLeft", "flashing")
 
@@ -1199,6 +1225,9 @@ Animate opts: image opts + -s/--speed N (1-255, larger = faster, default 130)
 
 Global flags:
   --rescan       Force a fresh BLE scan (ignore cached device)
+  --addr UUID    Connect to a specific cup by address (skips scan).
+                 Required when ≥ 2 SGUAI-C3 devices are paired —
+                 the scanner refuses to silently auto-pick.
   --host HOST    HTTP API host (REPL only, default 0.0.0.0)
   --port PORT    HTTP API port (REPL only, default 8080)
 
