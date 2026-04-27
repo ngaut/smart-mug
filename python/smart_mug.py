@@ -418,7 +418,16 @@ class BLEManager:
             for idx, payload in enumerate(payloads):
                 cmd = [0xFF, 0x55, 0x00, 0x00, 0x02, 0x26, idx, speed] + list(payload)
                 cmd[2] = len(cmd)  # 0x50 (80)
-                await self._write_frame_with_retry(cmd)
+                try:
+                    await self._write_frame_with_retry(cmd)
+                except Exception as e:
+                    # Surface the exact frame that failed so we can
+                    # diagnose mid-stream disconnects empirically.
+                    raise RuntimeError(
+                        f"animation upload failed at frame {idx}/{n} "
+                        f"(after {idx} successful frames, ~{idx * ANIM_FRAME_DELAY_S:.1f}s "
+                        f"elapsed): {type(e).__name__}: {e}"
+                    ) from e
                 if idx < n - 1:
                     await asyncio.sleep(ANIM_FRAME_DELAY_S)
         return True
