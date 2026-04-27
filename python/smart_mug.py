@@ -523,6 +523,43 @@ class BLEManager:
             return f"{resp[-2]}.{resp[-1]}"
         return ".".join(str(b) for b in resp)
 
+    async def read_device_info(self):
+        """Probe the standard BLE Device Information service (UUID 0x180A)
+        and return whatever characteristics the cup populates.
+
+        These are platform-stable per-cup identifiers (unlike macOS's
+        rotating peripheral UUIDs). If the cup populates the Serial Number
+        characteristic (0x2A25), that's the cleanest cross-session identity.
+
+        Returns a dict mapping characteristic short-name to its decoded
+        value. Missing characteristics are simply absent from the dict.
+        Network errors propagate (the caller's already inside a connect
+        block).
+        """
+        # Standard 16-bit GATT characteristic UUIDs (in DIS 0x180A)
+        DIS_CHARS = [
+            ("manufacturer", "00002a29-0000-1000-8000-00805f9b34fb"),
+            ("model_number", "00002a24-0000-1000-8000-00805f9b34fb"),
+            ("serial_number", "00002a25-0000-1000-8000-00805f9b34fb"),
+            ("firmware_rev", "00002a26-0000-1000-8000-00805f9b34fb"),
+            ("hardware_rev", "00002a27-0000-1000-8000-00805f9b34fb"),
+            ("software_rev", "00002a28-0000-1000-8000-00805f9b34fb"),
+            ("system_id",    "00002a23-0000-1000-8000-00805f9b34fb"),
+        ]
+        info = {}
+        for label, uuid in DIS_CHARS:
+            try:
+                raw = await self.client.read_gatt_char(uuid)
+                # Most are UTF-8 strings; system_id is 8 bytes binary.
+                if label == "system_id":
+                    info[label] = raw.hex()
+                else:
+                    info[label] = raw.decode("utf-8", errors="replace").rstrip("\x00")
+            except Exception:
+                # Characteristic not present on this device — skip.
+                pass
+        return info
+
 
 # Image Processing
 
@@ -965,6 +1002,55 @@ async def cmd_auto_off(args):
         return 1
 
 
+async def cmd_info(args):
+    """Dump everything we can read about the connected cup.
+
+    Useful for distinguishing physical cups when you have ≥ 2 paired.
+    Reads the standard BLE Device Information service (0x180A) plus
+    our protocol-level reads (firmware version, auto-off code, etc).
+    """
+    try:
+        async with connected_manager(args) as m:
+            print("\n=== BLE address ===")
+            try:
+                addr = m.client.address
+                print(f"  address: {addr}")
+            except Exception:
+                pass
+
+            print("\n=== Device Information service (0x180A) ===")
+            dis = await m.read_device_info()
+            if dis:
+                for k, v in dis.items():
+                    print(f"  {k}: {v}")
+            else:
+                print("  (no DIS characteristics populated)")
+
+            print("\n=== SGUAI protocol reads ===")
+            try:
+                print(f"  firmware (0x09):      {await m.read_version()}")
+            except Exception as e:
+                print(f"  firmware: error ({e})")
+            try:
+                code = await m.read_auto_off()
+                label = BLEManager.AUTO_OFF_CODES.get(code, f"unknown {code}")
+                print(f"  auto-off (0x27):      code {code} ({label})")
+            except Exception as e:
+                print(f"  auto-off: error ({e})")
+            try:
+                print(f"  battery (0x02):       {await m.read_battery()}%")
+            except Exception as e:
+                print(f"  battery: error ({e})")
+            try:
+                print(f"  temperature (0x01):   {await m.read_temperature()} °C")
+            except Exception as e:
+                print(f"  temperature: error ({e})")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 async def cmd_image(args):
     path, threshold, invert, dither, _, test_pattern = _parse_image_opts(args)
     if test_pattern == "checkerboard":
@@ -1203,6 +1289,9 @@ Commands:
                                               Auto-disables screen sleep by default
                                               so the loop plays continuously.
   read [field ...] [--rescan]                 Read version / temperature / battery
+  info [--rescan] [--addr UUID]               Dump everything: BLE address + standard
+                                              Device Information service + protocol reads
+                                              (useful for distinguishing two cups)
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
@@ -1252,6 +1341,8 @@ async def main():
         return await cmd_animate(sys.argv[2:])
     elif cmd == 'read':
         return await cmd_read(sys.argv[2:])
+    elif cmd == 'info':
+        return await cmd_info(sys.argv[2:])
     elif cmd in ('auto-off', 'autooff', 'screen-off'):
         return await cmd_auto_off(sys.argv[2:])
     elif cmd == 'repl':
