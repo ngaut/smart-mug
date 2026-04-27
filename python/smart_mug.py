@@ -120,30 +120,30 @@ class BLEManager:
             cached_addr = cache.get("address")
             if cached_addr:
                 print(f"Cached device: {cache.get('name')} ({cached_addr})")
-                # Try a direct address connect first — works even when
-                # the cup isn't advertising (always-on display side effect).
+                # Try the address as-is. If `connect()` succeeds the
+                # session is reusable; if not, the OS has aged out the
+                # cup from its peripheral cache and we fall back to
+                # scan. We do NOT probe-then-disconnect here — that
+                # destroys the very OS-level cache state the upcoming
+                # connect() needs, so the second connect would fail
+                # with "Device not found" even though the cup is
+                # reachable.
                 try:
-                    direct = BleakClient(cached_addr)
-                    await asyncio.wait_for(direct.connect(), timeout=8.0)
-                    if direct.is_connected:
-                        print("✓ Direct connect to cached address succeeded")
-                        await direct.disconnect()
-                        # Return a lightweight sentinel that connect()
-                        # will treat as an address. BleakClient(address)
-                        # accepts a string directly on all platforms.
-                        return cached_addr
-                except (asyncio.TimeoutError, Exception) as e:
-                    print(f"⚠ Direct connect failed ({type(e).__name__}); trying scan...")
-
-                try:
+                    # Lightweight reachability check via brief scan.
+                    # If the cached UUID is in scan results, return
+                    # the live BLEDevice; otherwise return the address
+                    # string so connect() can still try direct.
                     for d in await BleakScanner.discover(timeout=5.0):
                         if d.address == cached_addr:
                             print("✓ Cached device available")
                             return d
                 except Exception as e:
-                    print(f"⚠ Cache scan failed ({type(e).__name__}); rescanning...")
+                    print(f"⚠ Cache scan failed ({type(e).__name__}); trying direct connect...")
                 else:
-                    print("⚠ Cached device not found; rescanning...")
+                    print(f"⚠ Cached device not advertising; trying direct connect by address...")
+                # Fall back to direct address — connect() may still
+                # succeed if the OS has the peripheral cached.
+                return cached_addr
 
         print("Scanning for BLE devices...")
         devices = [d for d in await BleakScanner.discover(timeout=15.0) if d.name]
