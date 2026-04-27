@@ -516,7 +516,21 @@ class BLEManager {
     if (!Array.isArray(frames) || frames.length === 0) {
       throw new Error("frames must be a non-empty array");
     }
-    if (frames.length > 255) throw new Error("Max 255 frames");
+    if (frames.length > 255) throw new Error("Max 255 frames per the protocol spec");
+    // Empirical cup-side limit on SGUAI-C3 fw 1.7 (verified by
+    // bisection 2026-04-26): the cup's animation buffer holds at
+    // most 132 frames. Any animation with more frames causes the
+    // cup to drop the BLE link at frame index 132 and leaves the
+    // cup BLE-unreachable until physical wake. Hard-fail before
+    // sending so we don't brick the cup.
+    const CUP_MAX_FRAMES = 132;
+    if (frames.length > CUP_MAX_FRAMES) {
+      throw new Error(
+        `Animation has ${frames.length} frames; cup fw 1.7 buffer holds ` +
+        `at most ${CUP_MAX_FRAMES}. Trim to ${CUP_MAX_FRAMES} or fewer ` +
+        `frames before uploading.`
+      );
+    }
     if (!Number.isInteger(speed)) throw new Error("speed must be an integer");
     if (speed < 1 || speed > 255) throw new Error("speed must be 1..255 (0 is unspecified by firmware)");
 

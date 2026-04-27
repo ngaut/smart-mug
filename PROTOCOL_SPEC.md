@@ -351,6 +351,16 @@ Bytes:  FF   55   08   00   02   26   <count>  <speed>
 Tells the cup to expect `count` frames at the given speed (1 byte; default
 `0x82` = 130 in the official UI).
 
+**Frame-count limit (empirical, fw 1.7, verified 2026-04-26 via bisection):**
+the protocol's `<count>` byte allows up to 255, but on **SGUAI-C3 fw 1.7
+the cup can only buffer 132 frames** — any animation with `count > 132`
+causes the cup to drop the GATT link at frame index 132 (the 133rd
+frame). The cup also enters the silent-BLE state we see after
+auto-off=0 (§4.7), requiring physical wake to recover. Bisection points:
+130 frames upload cleanly; 140 frames fail at frame 132. Clients should
+clamp `count` to ≤ 132 for fw 1.7. The protocol limit may be raised in
+later firmware.
+
 **Speed-byte semantics (partially characterized on SGUAI-C3 fw 1.6,
 2026-04-25):** larger byte = faster playback (monotonic). The exact
 unit / relationship is not yet pinned down quantitatively. Observed:

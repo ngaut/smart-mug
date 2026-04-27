@@ -381,7 +381,22 @@ class BLEManager:
         if not frames:
             raise ValueError("At least one frame required")
         if len(frames) > 255:
-            raise ValueError("Max 255 frames")
+            raise ValueError("Max 255 frames per the protocol spec")
+        # Empirical cup-side limit on SGUAI-C3 fw 1.7 (verified by
+        # bisection 2026-04-26): the cup's animation buffer holds at
+        # most 132 frames. Any animation with more frames causes the
+        # cup to drop the BLE link at frame index 132 and leaves the
+        # cup BLE-unreachable until physical wake. Hard-fail before
+        # sending so we don't brick the cup. The protocol spec allows
+        # up to 255 — this is a firmware constraint that may be
+        # raised in later cup firmware.
+        CUP_MAX_FRAMES = 132
+        if len(frames) > CUP_MAX_FRAMES:
+            raise ValueError(
+                f"Animation has {len(frames)} frames; cup fw 1.7 buffer "
+                f"holds at most {CUP_MAX_FRAMES}. Trim to {CUP_MAX_FRAMES} "
+                f"or fewer frames before uploading."
+            )
         if not 1 <= speed <= 255:
             raise ValueError("speed must be 1..255 (0 is unspecified by firmware)")
 
