@@ -142,9 +142,10 @@ with a wipe-in / hold / wipe-out beat:
 ```
 
 Every card has the same disciplined layout: rows 0-4 = small label,
-rows 5-11 = big number. Counter-bit anti-dedup at row 11 cols 1-7.
-No accent overlays competing with the digits; the wipe transitions
-do all the motion.
+**row 5 = blank gap** (so the label and number don't touch), rows
+6-11 = big number. Counter-bit anti-dedup at row 11 cols 1-7. No
+accent overlays competing with the digits; the wipe transitions do
+all the motion.
 
 ```bash
 uv run --with pillow python examples/tidb_envelope_animation.py
