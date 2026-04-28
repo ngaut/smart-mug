@@ -119,6 +119,44 @@ teach: when "explain the architecture" doesn't fit the medium,
 *tell a story whose climax is the brand*. The cup's job is to be a
 surprise on a coffee table, not a slide.
 
+### `tidb_hyperspace_animation.py` → `tidb_hyperspace.gif`
+
+**TiDB Hyperspace** — a math-driven 1-bit demoscene piece. 61 frames,
+~7 s/loop at `-s 8fps`. Eight overlapping effects, each transitioning
+straight into the next so the panel never goes static:
+
+```
+   1  PLASMA          two-axis sin() field with rising threshold —
+                      chaos resolves into a sparse pattern
+   2  CUBE LIFT-OFF   the field becomes a wireframe cube
+   3  CUBE SPIN       full 3D rotation around Y with perspective
+                      projection (vertices closer to camera draw
+                      larger), 12 Bresenham edges connect 8 corners
+   4  WARP            cube vertices scatter as a parallax starfield
+                      streaming outward (closer stars move faster)
+   5  HYPERSPACE      stars reverse — each one targeted at a
+                      specific brand-letter pixel, ease-in trajectory
+                      with a 1-pixel trail behind
+   6  BRAND LOCK      "TiDB" resolved; triple-ring halo expands
+                      outward (radii 8, 10, 13, 17 — never cuts
+                      through the letterforms)
+   7  HEARTBEAT       ECG-style trace sweeps L→R below the brand;
+                      8 cluster nodes pulse from dots into filled
+                      diamonds on each beat
+   8  SETTLE          clean brand + cluster, two hold frames
+```
+
+What makes it cool is the math: real 3D rotation matrices, real
+perspective division, real parametric radial motion, real linear-
+interpolated convergence — not just hand-tuned timings. The cube
+is genuinely a cube in 3D space, scaled to the panel's 4:1 aspect
+during projection.
+
+```bash
+uv run --with pillow python examples/tidb_hyperspace_animation.py
+/tmp/mug animate examples/tidb_hyperspace.gif -s 8fps
+```
+
 ### `tidb_strike_animation.py` → `tidb_strike.gif`
 
 **TiDB Strike Force** — a 1-bit demoscene-style piece that earns the
