@@ -134,23 +134,48 @@ func TestLoadGIFFrameCount(t *testing.T) {
 	}
 }
 
-// TestLoadGIFDisposalBackground exercises dispose=2 (restore-background)
-// — between frames, the canvas reverts to bg color in the dirty rect.
-// Without proper handling this fails because the canvas keeps the
-// previous frame's pixels.
+// TestLoadGIFDisposalBackground exercises dispose=2 (restore-background).
+// Frame 0 is fully black; frame 1's image data is a small white patch
+// at the top-left only. With dispose=0/none the rest of frame 1's
+// pixels stay black (same as frame 0). With dispose=2 (restore to
+// background between frames), the cup-side rendering should treat
+// frame 1's area-outside-the-image as "background", which the GIF
+// declares as black. Either way frame 1 should NOT have arbitrary
+// junk pixels from elsewhere — that's the regression we're guarding
+// against.
+//
+// The test asserts that:
+//
+//   - frame 0 is all-black
+//   - frame 1's top-left pixel is on (white patch)
+//   - frame 1's bottom-right pixel is off (NOT junk; black either by
+//     dispose=2 background restore OR by fall-through to frame 0)
+//
+// Without proper disposal/draw.Src handling, the resized canvas
+// retained ghost pixels from previous iterations and the
+// bottom-right of frame 1 would have inconsistent values across runs.
 func TestLoadGIFDisposalBackground(t *testing.T) {
 	pal := color.Palette{color.Black, color.White}
-	// Frame 0: all white (full screen).
-	f0 := solidFrame(48, 12, pal, color.White)
-	// Frame 1: only top-left 4×4 black, rest transparent. With dispose=0
-	// the rest stays white. We're stress-testing dispose=2 between f0
-	// and f1.
+
+	// Frame 0: fully black canvas.
+	f0 := solidFrame(48, 12, pal, color.Black)
+
+	// Frame 1: full 48×12 canvas, top-left 8×4 white, rest black.
+	// (Sparse delta with dispose=2 would also work but full canvas
+	// here makes the test deterministic regardless of disposal.)
 	f1 := image.NewPaletted(image.Rect(0, 0, 48, 12), pal)
+	whiteIdx := uint8(pal.Index(color.White))
+	blackIdx := uint8(pal.Index(color.Black))
 	for r := 0; r < 12; r++ {
 		for c := 0; c < 48; c++ {
-			f1.SetColorIndex(c, r, uint8(pal.Index(color.White)))
+			if r < 4 && c < 8 {
+				f1.SetColorIndex(c, r, whiteIdx)
+			} else {
+				f1.SetColorIndex(c, r, blackIdx)
+			}
 		}
 	}
+
 	path := makeGIF(t, 48, 12, []*image.Paletted{f0, f1}, []byte{gif.DisposalBackground, 0})
 
 	loaded, err := LoadGIF(path, 128, false)
@@ -160,12 +185,34 @@ func TestLoadGIFDisposalBackground(t *testing.T) {
 	if len(loaded) != 2 {
 		t.Fatalf("want 2 frames, got %d", len(loaded))
 	}
-	// Both frames should still render as all-on (white). The point of
-	// this test is just to exercise the dispose=2 code path without
-	// crashing — full visual correctness for sparse GIFs would require
-	// more elaborate fixtures.
-	if !loaded[0][0][0] {
-		t.Error("frame 0 (white) expected all-on")
+
+	// Frame 0: all-black.
+	for r := 0; r < 12; r++ {
+		for c := 0; c < 48; c++ {
+			if loaded[0][r][c] {
+				t.Errorf("frame 0 pixel (%d,%d) should be off (black source)", r, c)
+				return
+			}
+		}
+	}
+	// Frame 1: top-left white patch is on.
+	if !loaded[1][0][0] {
+		t.Error("frame 1 (0,0) should be on (white patch)")
+	}
+	// Frame 1: bottom-right outside the white patch is off.
+	if loaded[1][11][47] {
+		t.Error("frame 1 (11,47) should be off (black background)")
+	}
+	// Frame 1: a pixel inside the patch but on the boundary
+	// (NN-resize aliasing risk). 48-wide source, 8-px patch starts at
+	// col 0 and ends just before col 8 — at output res (also 48), the
+	// pixel at col 7 should be white.
+	if !loaded[1][0][7] {
+		t.Error("frame 1 (0,7) should be on (rightmost white col)")
+	}
+	// Frame 1: pixel at col 8 — just outside patch — should be off.
+	if loaded[1][0][8] {
+		t.Error("frame 1 (0,8) should be off (just outside patch)")
 	}
 }
 

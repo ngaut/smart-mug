@@ -567,6 +567,27 @@ class BLEManager:
             return f"{resp[-2]}.{resp[-1]}"
         return ".".join(str(b) for b in resp)
 
+    async def factory_reset(self):
+        """Send the factory-reset command (0xFC). DESTRUCTIVE — wipes
+        all cup data: saved animations, custom settings, and pairing.
+
+        Frame: ``FF 55 06 00 01 FC`` (6 bytes, no data). Note the
+        function byte is ``0x01`` (read), even though it's a write
+        trigger — matches the APK exactly at
+        ``app-service.pretty.js:52564``. See PROTOCOL_SPEC.md §4.8.
+
+        The cup typically closes the GATT link as part of processing
+        this, so we don't wait for a response and treat write-side
+        errors as expected (the connection drop IS the success signal)."""
+        command = [0xFF, 0x55, 0x06, 0x00, 0x01, 0xFC]
+        async with self._lock:
+            try:
+                await self._write(command)
+            except Exception:
+                # Cup may drop the GATT link as part of resetting.
+                pass
+        return True
+
     async def read_device_info(self):
         """Probe the standard BLE Device Information service (UUID 0x180A)
         and return whatever characteristics the cup populates.
@@ -1048,7 +1069,7 @@ async def connected_manager(args):
 # Flags that don't belong to any cmd-specific parser but appear in CLI args.
 # Listed here so _parse_image_opts knows to consume them silently rather than
 # warning, and `_first_positional` knows how many args to skip past.
-_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive", "--addr", "--no-daemon"}
+_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive", "--addr", "--no-daemon", "--yes", "-y"}
 _GLOBAL_FLAGS_WITH_VALUE = {"--mode", "--host", "--port", "--addr"}
 
 VALID_MODES = ("static", "scrollRight", "scrollLeft", "flashing")
@@ -1382,6 +1403,37 @@ def cmd_alias(args):
     print(f"✓ Aliased {name!r} → {uuid}")
     print(f"  Use it: smart_mug.py info --addr {name}")
     return 0
+
+
+async def cmd_reset(args):
+    """Factory-reset the cup. ALL DATA WILL BE ERASED.
+
+    Sends 0xFC matching the official APK's "重置设备" action. Wipes
+    saved animations, custom settings, and pairing state.
+
+    By default prompts for confirmation. Pass ``--yes`` / ``-y`` to skip.
+    """
+    skip_confirm = "--yes" in args or "-y" in args
+    if not skip_confirm:
+        try:
+            answer = input(
+                "⚠ Factory reset will ERASE ALL CUP DATA "
+                "(animations, settings, pairing). Continue? [y/N] "
+            ).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            print("Aborted.")
+            return 1
+    try:
+        async with connected_manager(args) as m:
+            await m.factory_reset()
+            print("✓ Factory-reset command sent. The cup will reboot; "
+                  "BLE may drop momentarily.")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
 
 
 async def cmd_image(args):
@@ -1896,6 +1948,8 @@ Commands:
                                               or all running daemons.
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
+  reset [-y] [--rescan]                       Factory reset (DESTRUCTIVE — wipes
+                                              all cup data; -y to skip prompt)
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
   clear-cache                                 Forget cached device
 
@@ -1943,6 +1997,8 @@ async def main():
         return await cmd_mode(sys.argv[2:])
     elif cmd == 'image':
         return await cmd_image(sys.argv[2:])
+    elif cmd in ('reset', 'factory-reset'):
+        return await cmd_reset(sys.argv[2:])
     elif cmd in ('animate', 'anim', 'gif'):
         return await cmd_animate(sys.argv[2:])
     elif cmd == 'read':

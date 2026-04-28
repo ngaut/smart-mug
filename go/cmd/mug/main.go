@@ -264,7 +264,7 @@ func cmdAnimate(ctx context.Context, c *sguai.Client, args []string) error {
 		return errors.New("usage: animate <gif> [--speed N]")
 	}
 	path := pos[0]
-	speed := 200
+	speed := 130 // matches Python and the APK's default (`speedValue`)
 	if s := flagValue(args, "-s"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
 			speed = n
@@ -464,7 +464,9 @@ Commands:
                                              presets: always | 30s | 1m | 3m | 5m
   greeting <msg> [--mode M] [--addr X]       Set greeting text (mode optional)
   mode <mode> [--addr X]                     static|scrollRight|scrollLeft|flashing
-  image <file> [--addr X]                    (not yet implemented in Go port)
+  image <file> [--addr X]                    STUB — not yet implemented in Go.
+                                             Use python/smart_mug.py image, or
+                                             pass a 1-frame GIF to "animate".
   animate <gif> [-s SPEED] [--addr X]        Upload animation (max 132 frames).
                   [--no-keep-alive] [-i]     Sets auto-off=0 by default (continuous
                                              playback); pass --no-keep-alive to

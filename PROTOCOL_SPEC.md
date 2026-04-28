@@ -310,26 +310,33 @@ exactly the row-major-LTR-interpretation of the *APK's bytes*, confirming
 the cup's framebuffer scan is row-major LTR.
 
 So for the 48×12 C3 display:
-- byte 0 bit 7 = pixel `(row=0, col=47)`
-- byte 0 bit 0 = pixel `(row=7, col=47)`
-- byte 1 bits 7..4 = pixels `(row=8..11, col=47)`
-- byte 1 bits 3..0 = pixels `(row=0..3, col=46)`
-- … bytes straddle column boundaries because 12 rows ≠ multiple of 8.
+- byte 0 bit 7 = pixel `(row=0, col=0)` (top-left LED)
+- byte 0 bit 0 = pixel `(row=0, col=7)`
+- byte 5 bit 0 = pixel `(row=0, col=47)` (top-right LED)
+- byte 6 bit 7 = pixel `(row=1, col=0)`
+- byte 71 bit 0 = pixel `(row=11, col=47)` (bottom-right LED)
+- Bytes do **not** straddle row boundaries — 48 cols / 8 bits = exactly
+  6 bytes per row.
 
 **Pixel values:** `0` = LED off, `1` = LED on.
 
-**Encoding (Python reference, matches the official app):**
+**Encoding (Python reference, matches the live `pack_bitmap` in
+`python/smart_mug.py`):**
 ```python
 def pack_bitmap(grid):  # grid is grid[row][col], 12 rows × 48 cols
-    bits = []
-    for col in range(47, -1, -1):
-        for row in range(12):
-            bits.append(1 if grid[row][col] else 0)
     out = bytearray(72)
-    for i, b in enumerate(bits):
-        if b: out[i // 8] |= 1 << (7 - (i % 8))
+    i = 0
+    for row in range(12):                     # rows top-to-bottom
+        for col in range(48):                 # cols left-to-right
+            if grid[row][col]:
+                out[i // 8] |= 1 << (7 - (i % 8))   # MSB-first
+            i += 1
     return bytes(out)
 ```
+
+The **column-major RTL** version found in the APK
+(`app-sub-service.pretty.js:10113-10135`) is documented above as the
+"firmware mismatch warning" form. Don't confuse the two.
 
 **Response:** Cup ACKs at the BLE-write level; no application response.
 

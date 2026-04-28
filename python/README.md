@@ -23,9 +23,15 @@ is cached after first connect; pass `--rescan` to force a fresh scan.
 | `mode <name>` | Set motion: `static`, `scrollRight`, `scrollLeft`, `flashing`. |
 | `image <file>` | Upload a static image. Resized to 48×12 monochrome. |
 | `image --test` / `image --border` | Upload a test pattern. |
-| `animate <gif>` | Upload an animated GIF. The cup stores the frames and plays them autonomously — no further BLE traffic needed during playback. |
-| `repl` | Persistent connection + HTTP API. |
-| `clear-cache` | Forget the cached device. |
+| `animate <gif>` | Upload an animated GIF (cup-side limit: 132 frames on fw 1.7). The cup stores the frames and plays them autonomously. |
+| `read [field ...]` | Read `version` / `temperature` / `battery` (default: all). |
+| `info` | Full snapshot — BLE address, Device Information service, all protocol reads. |
+| `auto-off [<preset>]` | Get/set screen auto-off. Presets: `always`, `30s`, `1m`, `3m`, `5m`. |
+| `reset [-y]` | Factory reset (DESTRUCTIVE — wipes saved animations / settings / pairing). |
+| `alias [<name> <UUID>]` | Manage local cup aliases (shared with the Go binary at `~/.smart_mug_cache.json`). `--remove <name>` / `--clear` also supported. |
+| `daemon [--addr X] [--port N]` | Persistent BLE-connection daemon with HTTP API. `--status` / `--stop` / `--stop --all` to manage. |
+| `repl` | Interactive REPL + HTTP API on a single persistent connection. |
+| `clear-cache` | Forget the cached device + aliases. |
 
 ### Common image / animation options
 

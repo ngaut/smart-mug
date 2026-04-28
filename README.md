@@ -51,13 +51,28 @@ Web-based control application for the SGUAI-C3 Smart Cup - a Bluetooth-enabled s
 ├── examples/             # Reference animations (generators + pre-rendered GIFs)
 │   ├── README.md
 │   ├── tidb_scale_animation.py   # 4-phase "horizontal scale-out" narrative
-│   └── tidb_scale.gif
-├── python/               # Python BLE client (CLI + REST API)
-│   ├── smart_mug.py
-│   └── ...
+│   ├── tidb_scale.gif
+│   ├── tidb_nextgen_animation.py # 132-frame "Survive & Scale" story
+│   └── tidb_nextgen.gif
+├── python/               # Python BLE client (CLI + daemon + HTTP API)
+│   ├── smart_mug.py      # Full implementation (~2000 LOC)
+│   ├── test_protocol.py  # Wire-format tests (16 cases)
+│   └── README.md
+├── go/                   # Go reimplementation (single binary, no daemon needed)
+│   ├── cmd/mug/          # CLI entry
+│   ├── internal/sguai/   # Wire protocol + BLE client
+│   ├── internal/anim/    # GIF loader
+│   ├── internal/cache/   # Shared alias cache (same JSON file as Python)
+│   └── README.md
 ├── PROTOCOL_SPEC.md      # Complete BLE protocol documentation
 └── README.md             # This file
 ```
+
+The Python and Go CLIs share a cache file at `~/.smart_mug_cache.json`,
+so aliases registered by either are visible to the other. They do
+**not** share the daemon-state directory; running the Python daemon
+and using `mug ...` against the same cup at the same time will fight
+over the BLE link.
 
 ## Try a worked example
 

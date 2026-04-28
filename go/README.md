@@ -79,3 +79,12 @@ The cache file at `~/.smart_mug_cache.json` is the same on-disk format
 as Python's. Aliases registered via Python's `smart_mug.py alias`
 appear in Go's `mug alias` (and vice versa). Both implementations can
 be in use side-by-side — no migration needed.
+
+**Caveat: daemon state is NOT shared.** The Python implementation
+writes per-port status files to `~/.smart_mug_daemons/`. The Go binary
+doesn't read or write that directory, and doesn't avoid stepping on
+a running Python daemon. If you have a Python daemon holding a BLE
+link to cup-fw17 and run `mug animate --addr cup-fw17`, both will try
+to connect to the same cup; behavior is undefined (typically: one
+side wins, the other gets a connection error). Use one tool at a
+time per physical cup.
