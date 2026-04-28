@@ -121,8 +121,10 @@ surprise on a coffee table, not a slide.
 
 ### `tidb_morpheus_animation.py` → `tidb_morpheus.gif`
 
-**TiDB Morpheus** — brand metamorphosis (acts 1–7) + downstream-
-serving coda (acts 8–10). 102 frames at `-s 8fps` (~12 s/loop).
+**TiDB Morpheus** — brand metamorphosis (acts 1–7) + power-surge
+coda (acts 8–13). 104 frames at `-s 8fps` (~13 s/loop). Music-video
+pacing in the coda: build, drop, arrival, individual impacts,
+climax, reset.
 
 ```
    1  GLITCH BOOT     scan-line corruption tears across the brand,
@@ -143,32 +145,39 @@ serving coda (acts 8–10). 102 frames at `-s 8fps` (~12 s/loop).
    6  BRAND SNAP      rings collapse into the letter pixels;
                       4-ring halo bursts outward (radii 8 → 21)
    7  BRAND HOLD      clean brand + 8-node cluster (transitional)
-   8  BEACON          tiny 7-pixel anchor cluster at the left.
-                      One beam at a time fires from the anchor to
-                      one of 4 destinations on the right; on
-                      arrival, a clean 4×5 use-case icon resolves
-                      (database / chart / document / data-node).
-                      4 beats × 4 frames each.
-   9  CONSTELLATION   anchor + all 4 icons + ONE active dotted
-                      connector + the addressed icon inverted.
-                      Cycles through the 4 destinations so the
-                      panel reads as "TiDB the system addressing
-                      its downstream use cases" without ever
-                      filling with overlapping fans.
-  10  CLOSE           icons fade row-by-row, anchor expands back
-                      into the canonical brand+cluster, ready for
-                      phase_glitch to re-corrupt it on the loop
+   8  CHARGE          8-node cluster pulses with growing diamond
+                      halos. 4 beats; halo radius grows 2 → 4 → 6
+                      → 9 (almost full-panel), nodes thicken with
+                      each beat. Anticipation building.
+   9  DROP            2-frame whole-panel sting: full white →
+                      full black. Breaks the rhythm, signals the
+                      "break"
+  10  RADIATE         single diamond wave expands from screen
+                      center (radii 1 → 3 → 5 → 7), then the 4
+                      use-case icons SLAM into existence with
+                      halo bursts around each, then halos drop
+                      and the anchor materializes
+  11  LOCK-IN         a STREAM packet flies anchor → each icon in
+                      turn (3-pixel mid-flight streak); on
+                      arrival the addressed icon is inverted +
+                      bordered with a 1-pixel halo: bright impact.
+                      4 beats × 2 frames
+  12  UNIFIED PULSE   climax — anchor + 4 icons + dual-radius
+                      halo rings pulse together in perfect sync,
+                      strong on/off rhythm
+  13  RESET           clean brand + 8-node cluster, neutral state,
+                      ready for phase_glitch to re-corrupt it
 ```
 
 **Design lesson learned the hard way**: at 48×12 1-bit, you can't
-recreate the official PingCAP key visual literally — voxel-cluster
+recreate the PingCAP marketing key visual literally — voxel-cluster
 + data-rain + ray-fan + use-case-icons + satellite-cubes overlaid
 on top of each other becomes pixel cacophony. The coda captures
 the *spirit* of that visual (identity central, power radiating
 outward, downstream use cases) by showing **one element at a time
-with real negative space**. Every beacon frame is `anchor + 1
-beam + 0 icons` or `anchor + 0 beams + 1 icon`. Every constellation
-frame is `anchor + 4 static icons + 1 active beam + 1 pinged icon`.
+with real negative space and music-video pacing**. The DROP frame
+(full-panel inversion) is the centerpiece: a frame the eye can't
+miss, separating "the build" from "the arrival."
 
 The protagonist of the animation is the brand itself: typed,
 glitched, repaired, flipped, extruded, shattered, scattered,

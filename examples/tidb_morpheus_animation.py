@@ -737,6 +737,198 @@ def phase_close(num_frames=5):
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Power-surge coda — replaces the previous quieter beacon/constellation/
+# close phases with a music-video pacing: charge → drop → radiate →
+# lock-in → unified-pulse → reset.  Big movements that span the panel,
+# real rhythm, a synchronized DROP frame as the centerpiece.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def diamond_outline(img, cx, cy, r):
+    for dx in range(-r, r + 1):
+        dy = r - abs(dx)
+        for sign in (-1, 1):
+            x, y = cx + dx, cy + sign * dy
+            if 0 <= x < W and 0 <= y < H:
+                img.putpixel((x, y), 1)
+
+
+def fill_all(img):
+    for y in range(H):
+        for x in range(W):
+            img.putpixel((x, y), 1)
+
+
+def phase_charge(num_frames=8):
+    """Cluster row PULSES with growing halos.  Each pulse beat: 1
+    halo frame, 1 quiet frame.  4 beats, halo grows each beat,
+    nodes get bigger each beat — anticipation building toward the
+    drop."""
+    frames = []
+    cx, cy = W // 2, 5
+    centers = [(int(4 + (W - 8) * i / 7), cy) for i in range(8)]
+    pulse_radii = [2, 4, 6, 9]
+    for beat in range(4):
+        f = blank()
+        for ccx, ccy in centers:
+            f.putpixel((ccx, ccy), 1)
+        diamond_outline(f, cx, cy, pulse_radii[beat])
+        frames.append(f)
+        f = blank()
+        r = beat // 2
+        for ccx, ccy in centers:
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if abs(dx) + abs(dy) <= r:
+                        x, y = ccx + dx, ccy + dy
+                        if 0 <= x < W and 0 <= y < H:
+                            f.putpixel((x, y), 1)
+        frames.append(f)
+    return frames
+
+
+def phase_drop(num_frames=2):
+    """The DROP — 2 frames: full panel inverted (all white), then
+    full panel blank.  Whole-screen flash that visually breaks the
+    rhythm that's been building.  Like a synth tear."""
+    f1 = blank()
+    fill_all(f1)
+    f2 = blank()
+    return [f1, f2]
+
+
+def phase_radiate(num_frames=8):
+    """After the drop, ONE wave expands outward from screen center,
+    delivers energy, then dissipates.  Icons materialize AFTER the
+    wave passes through their region — never co-existing with the
+    expanding ring (which would create overlap noise).  Anchor
+    arrives last for a clean lock-in."""
+    frames = []
+    cx, cy = W // 2, H // 2
+    # Frame 0–3: ring expanding outward, NOTHING ELSE (clean wave)
+    for t in range(4):
+        f = blank()
+        diamond_outline(f, cx, cy, t * 2 + 1)  # 1, 3, 5, 7
+        frames.append(f)
+    # Frame 4: ring is gone; all 4 icons SLAM into existence at once
+    f = blank()
+    for ix, iy, icon in ICON_POSITIONS_2X2:
+        stamp_glyph(f, icon, ix, iy)
+    # 1-pixel halo around each icon for the first frame (impact)
+    for ix, iy, icon in ICON_POSITIONS_2X2:
+        for dy in (-1, len(icon)):
+            for dx in range(-1, len(icon[0]) + 1):
+                x, y = ix + dx, iy + dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+        for dy in range(-1, len(icon) + 1):
+            for dx in (-1, len(icon[0])):
+                x, y = ix + dx, iy + dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+    frames.append(f)
+    # Frame 5: halos drop, just icons clean
+    f = blank()
+    for ix, iy, icon in ICON_POSITIONS_2X2:
+        stamp_glyph(f, icon, ix, iy)
+    frames.append(f)
+    # Frame 6: anchor materializes (small halo around it for arrival)
+    f = blank()
+    for ix, iy, icon in ICON_POSITIONS_2X2:
+        stamp_glyph(f, icon, ix, iy)
+    stamp_anchor(f)
+    diamond_outline(f, ANCHOR_X, ANCHOR_Y, 3)
+    frames.append(f)
+    # Frame 7: anchor + icons clean
+    f = blank()
+    for ix, iy, icon in ICON_POSITIONS_2X2:
+        stamp_glyph(f, icon, ix, iy)
+    stamp_anchor(f)
+    frames.append(f)
+    return frames
+
+
+def phase_lock_in(num_frames=8):
+    """4 icons present + anchor.  A 3-pixel STREAM packet flies
+    from the anchor to each icon in turn — 2 frames per beat
+    (mid-flight + arrival).  Arrival inverts the icon AND draws
+    a 1-pixel halo around it: bright impact."""
+    frames = []
+    targets = [(ix + 2, iy + 2) for ix, iy, _ in ICON_POSITIONS_2X2]
+    for beat in range(4):
+        tx, ty = targets[beat]
+        # Mid-flight
+        f = blank()
+        stamp_anchor(f)
+        for ix, iy, icon in ICON_POSITIONS_2X2:
+            stamp_glyph(f, icon, ix, iy)
+        mx = (BEAM_ORIGIN_X + tx) // 2
+        my = (BEAM_ORIGIN_Y + ty) // 2
+        for k in range(3):
+            sx = mx - k
+            sy = my
+            if 0 <= sx < W and 0 <= sy < H:
+                f.putpixel((sx, sy), 1)
+        frames.append(f)
+        # Arrival burst
+        f = blank()
+        stamp_anchor(f)
+        for ix, iy, icon in ICON_POSITIONS_2X2:
+            stamp_glyph(f, icon, ix, iy)
+        ix, iy, icon = ICON_POSITIONS_2X2[beat]
+        for dy in range(len(icon)):
+            row = icon[dy]
+            for dx in range(len(row)):
+                x, y = ix + dx, iy + dy
+                if 0 <= x < W and 0 <= y < H:
+                    cur = f.getpixel((x, y))
+                    f.putpixel((x, y), 0 if cur else 1)
+        # 1-pixel halo around the impacted icon
+        for dy in (-1, len(icon)):
+            for dx in range(-1, len(icon[0]) + 1):
+                x, y = ix + dx, iy + dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+        for dy in range(-1, len(icon) + 1):
+            for dx in (-1, len(icon[0])):
+                x, y = ix + dx, iy + dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+        frames.append(f)
+    return frames
+
+
+def phase_unified_pulse(num_frames=4):
+    """Climax — anchor + 4 icons all present, halos pulse together
+    in perfect sync.  Even frames: dual-radius halo rings.  Odd
+    frames: clean.  Strong on/off rhythm."""
+    frames = []
+    cx, cy = W // 2, H // 2
+    for t in range(num_frames):
+        f = blank()
+        stamp_anchor(f)
+        for ix, iy, icon in ICON_POSITIONS_2X2:
+            stamp_glyph(f, icon, ix, iy)
+        if t % 2 == 0:
+            diamond_outline(f, cx, cy, 6)
+            diamond_outline(f, cx, cy, 9)
+        frames.append(f)
+    return frames
+
+
+def phase_reset(num_frames=3):
+    """Back to brand + 8-node cluster, the loop's neutral state."""
+    frames = []
+    for _ in range(num_frames):
+        f = blank()
+        stamp(f, "TiDB", BRAND_X, BRAND_Y)
+        for ccx, ccy in cluster_centers():
+            f.putpixel((ccx, ccy), 1)
+        frames.append(f)
+    return frames
+
+
+# ─────────────────────────────────────────────────────────────────────
 
 def add_frame_tick(frames):
     for i, f in enumerate(frames):
@@ -756,14 +948,15 @@ def build_frames():
             + phase_spiral(12)
             + phase_snap(8)
             + phase_settle(3)
-            # Coda — disciplined ending.  One element at a time, real
-            # negative space.  Captures the SPIRIT of the TiDB key
-            # visual (identity central → power radiating outward →
-            # downstream use cases) without the dense layering that
-            # turns to pixel mush at 48×12 1-bit.
-            + phase_beacon(16)
-            + phase_constellation(10)
-            + phase_close(5))
+            # Coda — POWER SURGE.  Music-video pacing: charge, drop,
+            # climax, reset.  Big movements that span the panel, real
+            # rhythm, a synchronized DROP frame as the centerpiece.
+            + phase_charge(8)
+            + phase_drop(2)
+            + phase_radiate(8)
+            + phase_lock_in(8)
+            + phase_unified_pulse(4)
+            + phase_reset(3))
 
 
 def main():
