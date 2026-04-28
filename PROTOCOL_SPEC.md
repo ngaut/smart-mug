@@ -116,7 +116,7 @@ Control"; reverse-engineering shows they are simply read vs. write — the
 | `0x09` | ✔ | — | Firmware version (`X.Y`) |
 | `0x0B` | ✔ | ✔ | Temperature unit (0=°C, 1=°F) |
 | `0x17` | — | ✔ | Greeting text (UTF-16BE codepoints, sub-cmd `0x01`) |
-| `0x23` | ✔ | ✔ | Display motion mode (0=static, 1=scroll→, 2=scroll←, 3=flash) |
+| `0x23` | ✔ | ✔ | Display motion mode (0=static, 1=scroll**Left**, 2=scroll**Right**, 3=flash) |
 | `0x25` | — | ✔ | **Static** bitmap upload (72-byte payload) |
 | `0x26` | — | ✔ | **Animation** upload (prologue + per-frame, see §4.6) |
 | `0x27` | ✔ | ✔ | Auto-screen-off duration code (0..4, see §4.7) |
@@ -238,20 +238,27 @@ Bytes:  FF   55   07   00   02   23   MODE
 - `0x23`: Command = Set Dynamic Mode
 - `MODE`: Animation mode value (1 byte)
 
-**Mode Values:**
+**Mode Values** (verified against APK
+`LanguagePack.dynamicEffect.dataList` across zh-Hant / en /
+zh-Hans / ja language packs):
 
-| Mode | Value | Description |
-|------|-------|-------------|
-| Static | `0x00` | No animation, static display |
-| Scroll Right | `0x01` | Content scrolls from left to right |
-| Scroll Left | `0x02` | Content scrolls from right to left |
-| Flashing | `0x03` | Display flashes on/off |
+| Value | APK label (zh-Hant / en / zh-Hans / ja) | Effect |
+|-------|------------------------------------------|--------|
+| `0x00` | 固定 / Fixed / 固定 / 固定 | Static — content held in place |
+| `0x01` | 左移 / Shift Left / 左移 / 左シフト | Content scrolls toward the left |
+| `0x02` | 右移 / Shift Right / 右移 / 右シフト | Content scrolls toward the right |
+| `0x03` | 閃爍 / Twinkle / 闪烁 / 点滅 | Display flashes on/off |
 
-**Example:**
-Set to "Scroll Left" mode:
+**Example — set "Shift Left":**
 ```
-[0xFF, 0x55, 0x07, 0x00, 0x02, 0x23, 0x02]
+[0xFF, 0x55, 0x07, 0x00, 0x02, 0x23, 0x01]
 ```
+
+**Earlier-version warning:** Implementations through commit
+`3441542` had `scrollRight=1, scrollLeft=2` (the byte values
+swapped). Sending what the user called "scrollRight" caused the
+cup to scroll *left* and vice versa. Fixed in the next commit;
+both Python and Go now match the APK.
 
 **Response:**
 - Returns acknowledgment (format not specified in implementation)
@@ -368,26 +375,43 @@ auto-off=0 (§4.7), requiring physical wake to recover. Bisection points:
 clamp `count` to ≤ 132 for fw 1.7. The protocol limit may be raised in
 later firmware.
 
-**Speed-byte semantics (partially characterized on SGUAI-C3 fw 1.6,
-2026-04-25):** larger byte = faster playback (monotonic). The exact
-unit / relationship is not yet pinned down quantitatively. Observed:
+**Speed-byte semantics — APK formula (extracted 2026-04-28 from
+`app-service.pretty.js:11298`):**
 
-| Speed | Behavior |
-|------:|---|
-| 20    | Slow — several seconds per 4-frame cycle |
-| 130 (official default) | Comfortable mid-speed, roughly 1 second per 4-frame cycle |
-| 200   | Faster than default |
-| 255   | Very fast, near-blur |
+```js
+ms_per_frame = 10 * (260 - speedValue)
+```
 
-The relationship is *not* `ms_per_frame = speed` (under that hypothesis
-small values would be fast, but they're slow). It is consistent with an
-inverse model (`period ∝ 1/speed`) or with the cup using `speed` as an
-internal accumulator increment with frame advance on overflow, but two
-data points isn't enough to discriminate. Stick with the official
-default of 130 for general use; iterate empirically for specific
-cycle rates.
+This is what the official app uses for its in-app preview, and is
+the manufacturer's belief about the cup's playback rate. Linear,
+monotonic, larger byte = faster playback. Examples:
 
-Range: 1–255 in the official app. 0 produces unspecified behavior.
+| `speedValue` | ms / frame | period for 4-frame cycle |
+|---:|---:|---:|
+|   1 | 2590 | 10.4 s |
+|  50 | 2100 | 8.4 s |
+| 130 (official default) | **1300** | **5.2 s** |
+| 200 | 600 | 2.4 s |
+| 255 (max) | 50 | 0.2 s |
+
+Range: 1–255 in the official app (slider bounds). 0 produces
+unspecified behavior.
+
+**Earlier (incorrect) characterization:** Versions of this spec
+through commit `3441542` claimed `period ≈ 32500 / speed` based
+on limited hardware probes. That hyperbolic fit happens to
+approximate the linear `10·(260−s)` formula in a narrow band
+(near speed=130 both give ~250 ms vs ~1300 ms — they're off by
+~5×) but diverges at extremes. The APK's linear formula is the
+authoritative one; treat the earlier table as superseded.
+
+**Two persistence layers — separate from this prologue byte:**
+the cup ALSO has a persistent **`0x24` Dynamic Speed** setting
+that survives across power cycles. The animation prologue's
+`<speed>` byte applies to *the just-uploaded animation*; `0x24`
+controls speed for whatever else the cup might be playing. The
+APK exposes both but treats them as one knob in the UI (the
+slider drives both). See §3.2 for the `0x24` feature byte.
 
 **Phase 2 — Per-frame upload, repeated `count` times:**
 ```
@@ -542,7 +566,7 @@ exhaustion it surfaces an error to the user. Successful writes are paced
 | Read Battery | `0x01` | `0x02` | 1 B `0x00` | 7 | Battery percent |
 | Read Temp Unit | `0x01` | `0x0B` | 1 B `0x00` | 7 | 0=°C, 1=°F |
 | Set Greeting | `0x02` | `0x17` | `<sub>` + UTF-16BE | 7 + 2K | `sub=0x01` + K UTF-16 code units, or `sub=0x00` (no data) to clear |
-| Set Motion | `0x02` | `0x23` | 1 B mode | 7 | 0=static, 1=→, 2=←, 3=flash |
+| Set Motion | `0x02` | `0x23` | 1 B mode | 7 | 0=static, 1=←, 2=→, 3=flash (verified vs APK) |
 | Set Static Image | `0x02` | `0x25` | 72 B bitmap | 78 (`0x4E`) | One frame |
 | Animation Prologue | `0x02` | `0x26` | `<count><speed>` | 8 | Begin N-frame animation |
 | Animation Frame | `0x02` | `0x26` | `<idx><speed>` + 72 B | 80 (`0x50`) | Store frame (×N) |

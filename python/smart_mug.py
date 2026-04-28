@@ -391,8 +391,15 @@ class BLEManager:
         return True
 
     async def set_dynamic_mode(self, mode):
-        """Set display motion: static / scrollRight / scrollLeft / flashing."""
-        mode_map = {"static": 0, "scrollRight": 1, "scrollLeft": 2, "flashing": 3}
+        """Set display motion: static / scrollLeft / scrollRight / flashing.
+
+        Byte values match the official APK (verified via the
+        `LanguagePack.dynamicEffect.dataList` across 4 language packs):
+        0=固定 (Fixed), 1=左移 (Shift Left), 2=右移 (Shift Right),
+        3=閃爍 (Flashing). The earlier impl had scroll directions
+        swapped — sending `scrollRight` actually scrolled left.
+        """
+        mode_map = {"static": 0, "scrollLeft": 1, "scrollRight": 2, "flashing": 3}
         if mode not in mode_map:
             raise ValueError(f"Invalid mode. Use: {list(mode_map)}")
         command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x23, mode_map[mode]]

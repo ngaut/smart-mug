@@ -147,6 +147,23 @@ def test_factory_reset_uses_function_byte_01():
 
 
 # -----------------------------------------------------------------------------
+# Dynamic-mode byte values — APK ground truth from
+# LanguagePack.dynamicEffect.dataList: 0=Fixed, 1=Shift Left,
+# 2=Shift Right, 3=Twinkle. Verified across 4 language packs. The
+# earlier (incorrect) mapping had 1=Right / 2=Left swapped.
+# -----------------------------------------------------------------------------
+
+def test_dynamic_mode_byte_values():
+    text = (Path(__file__).resolve().parent / "smart_mug.py").read_text()
+    # The mode_map literal must have left=1, right=2.
+    assert '"scrollLeft": 1' in text, "scrollLeft must map to byte 1 (左移 in APK)"
+    assert '"scrollRight": 2' in text, "scrollRight must map to byte 2 (右移 in APK)"
+    # And NOT the swapped form.
+    assert '"scrollRight": 1' not in text, "scroll directions are SWAPPED — see APK dynamicEffect.dataList"
+    assert '"scrollLeft": 2' not in text, "scroll directions are SWAPPED — see APK dynamicEffect.dataList"
+
+
+# -----------------------------------------------------------------------------
 # Auto-off codes table — must match the APK's autoStandby.dataList exactly.
 # -----------------------------------------------------------------------------
 

@@ -62,11 +62,21 @@ var AutoOffCodes = map[byte]string{
 	4: "5 minutes",
 }
 
-// DynamicModes maps user-facing mode names to the byte the firmware expects.
+// DynamicModes maps user-facing mode names to the byte the firmware
+// expects. Byte values verified against the APK's
+// `LanguagePack.dynamicEffect.dataList` across 4 language packs:
+//   0 = 固定 / Fixed       (static)
+//   1 = 左移 / Shift Left  (scroll left)
+//   2 = 右移 / Shift Right (scroll right)
+//   3 = 閃爍 / Twinkle     (flashing)
+//
+// Earlier impls had scrollRight=1 / scrollLeft=2 (swapped) and
+// produced text scrolling the opposite direction from what users
+// asked for — fixed.
 var DynamicModes = map[string]byte{
 	"static":      0,
-	"scrollright": 1,
-	"scrollleft":  2,
+	"scrollleft":  1,
+	"scrollright": 2,
 	"flashing":    3,
 }
 
