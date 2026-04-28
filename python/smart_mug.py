@@ -1463,89 +1463,170 @@ async def _repl_dispatch(manager, cmd, cmd_args):
         print(f"❌ Unknown command: {cmd!r} (try 'help')")
 
 
-DAEMON_STATUS_FILE = Path.home() / ".smart_mug_daemon.json"
+DAEMON_DIR = Path.home() / ".smart_mug_daemons"
+# Legacy single-file location from the previous daemon implementation.
+# Cleaned up on first new-daemon run if present and stale.
+_LEGACY_DAEMON_STATUS_FILE = Path.home() / ".smart_mug_daemon.json"
 
 
-def _read_daemon_status():
-    """Return the current daemon status dict, or None if no daemon is
-    recorded or the recorded PID is dead. Cleans up stale status files."""
-    if not DAEMON_STATUS_FILE.exists():
-        return None
+def _daemon_status_file(port):
+    return DAEMON_DIR / f"port-{port}.json"
+
+
+def _read_one_daemon(path):
+    """Load + alive-check one daemon status file. Returns the dict on
+    success; cleans up + returns None if the recorded PID is gone."""
     try:
-        status = json.loads(DAEMON_STATUS_FILE.read_text())
+        status = json.loads(path.read_text())
     except (OSError, ValueError):
         return None
     pid = status.get("pid")
     if not isinstance(pid, int):
         return None
     try:
-        os.kill(pid, 0)  # signal 0 = existence check
+        os.kill(pid, 0)
     except OSError:
-        # Stale status file — daemon process is gone. Remove and return None.
         try:
-            DAEMON_STATUS_FILE.unlink()
+            path.unlink()
         except OSError:
             pass
         return None
     return status
 
 
+def _read_all_daemons():
+    """Return a list of running daemon status dicts. Stale entries are
+    cleaned up. Includes a one-time migration of the legacy
+    `~/.smart_mug_daemon.json` location."""
+    # Legacy file: if its PID is still alive, migrate; otherwise drop.
+    if _LEGACY_DAEMON_STATUS_FILE.exists():
+        legacy = _read_one_daemon(_LEGACY_DAEMON_STATUS_FILE)
+        if legacy:
+            DAEMON_DIR.mkdir(parents=True, exist_ok=True)
+            target = _daemon_status_file(legacy.get("port", 0))
+            try:
+                target.write_text(json.dumps(legacy, indent=2))
+                _LEGACY_DAEMON_STATUS_FILE.unlink()
+            except OSError:
+                pass
+        else:
+            try:
+                _LEGACY_DAEMON_STATUS_FILE.unlink()
+            except OSError:
+                pass
+
+    if not DAEMON_DIR.exists():
+        return []
+    out = []
+    for path in sorted(DAEMON_DIR.glob("port-*.json")):
+        s = _read_one_daemon(path)
+        if s:
+            out.append(s)
+    return out
+
+
+def _read_daemon_status(port=None):
+    """Convenience: return one daemon (matching ``port`` if given, else
+    the unique daemon if exactly one is running) or None."""
+    daemons = _read_all_daemons()
+    if not daemons:
+        return None
+    if port is not None:
+        for d in daemons:
+            if d.get("port") == port:
+                return d
+        return None
+    if len(daemons) == 1:
+        return daemons[0]
+    return None  # multiple — caller must disambiguate
+
+
+def _format_daemon(d):
+    """One-line summary of a daemon status dict."""
+    addr = d.get("address", "?")
+    alias = d.get("alias")
+    target = f"{alias} ({addr})" if alias else addr
+    return (f"  port {d.get('port')}: PID {d.get('pid')} → {target} "
+            f"@ http://{d.get('host')}:{d.get('port')}/")
+
+
 async def cmd_daemon(args):
     """Persistent BLE-connection daemon with HTTP API.
 
-    Holds a single GATT connection alive until the process is signaled
-    (SIGINT/SIGTERM). Exposes the cup over a local HTTP API so multiple
+    Holds a GATT connection alive until the process is signaled
+    (SIGINT/SIGTERM). Exposes the cup over a local HTTP API so
     short-lived clients can drive the cup without each paying the
     connect+disconnect cost — and without triggering the cup's
-    silent-BLE side effects we hit when reconnecting after an animation
-    upload (PROTOCOL_SPEC.md §4.6 / §4.7).
+    silent-BLE side effects after autonomous animation playback
+    (PROTOCOL_SPEC.md §4.6 / §4.7).
+
+    Multiple daemons may run simultaneously, one per port, e.g. one
+    per physical cup. Status files live at
+    ``~/.smart_mug_daemons/port-<N>.json``.
 
     Usage:
-      smart_mug.py daemon [--addr UUID|alias] [--host 127.0.0.1] [--port 8080]
-      smart_mug.py daemon --status
-      smart_mug.py daemon --stop
-
-    Only one daemon can run at a time (single status file). Multi-cup
-    daemonization on different ports is a future extension.
+      smart_mug.py daemon [--addr UUID|alias] [--host 127.0.0.1] [--port N]
+      smart_mug.py daemon --status                  List all running daemons
+      smart_mug.py daemon --stop [--port N | --all] Stop one or all daemons
     """
     if "--status" in args:
-        status = _read_daemon_status()
-        if not status:
-            print("No daemon running.")
+        daemons = _read_all_daemons()
+        if not daemons:
+            print("No daemons running.")
             return 0
-        addr = status.get("address", "?")
-        alias = status.get("alias")
-        target = f"{alias} ({addr})" if alias else addr
-        print(f"Daemon running:")
-        print(f"  PID:      {status.get('pid')}")
-        print(f"  HTTP:     http://{status.get('host')}:{status.get('port')}/")
-        print(f"  Cup:      {target}")
-        print(f"  Started:  {status.get('started_at')}")
+        print(f"{len(daemons)} daemon(s) running:")
+        for d in daemons:
+            print(_format_daemon(d))
+            print(f"    started:  {d.get('started_at')}")
         return 0
 
     if "--stop" in args:
-        status = _read_daemon_status()
-        if not status:
-            print("No daemon running.")
+        daemons = _read_all_daemons()
+        if not daemons:
+            print("No daemons running.")
             return 0
-        pid = status["pid"]
+        if "--all" in args:
+            stopped = 0
+            for d in daemons:
+                try:
+                    os.kill(d["pid"], signal.SIGTERM)
+                    print(f"✓ Sent SIGTERM to PID {d['pid']} (port {d.get('port')})")
+                    stopped += 1
+                except OSError as e:
+                    print(f"⚠ Could not signal PID {d['pid']}: {e}")
+            return 0 if stopped else 1
+        target_port = _flag(args, "--port", None, int)
+        if target_port is None and len(daemons) == 1:
+            d = daemons[0]
+        elif target_port is None:
+            print("Multiple daemons running — pass --port <N> or --all:")
+            for d in daemons:
+                print(_format_daemon(d))
+            return 1
+        else:
+            d = next((x for x in daemons if x.get("port") == target_port), None)
+            if d is None:
+                print(f"No daemon on port {target_port}.")
+                return 1
         try:
-            os.kill(pid, signal.SIGTERM)
-            print(f"✓ Sent SIGTERM to daemon PID {pid}")
+            os.kill(d["pid"], signal.SIGTERM)
+            print(f"✓ Sent SIGTERM to PID {d['pid']} (port {d.get('port')})")
         except OSError as e:
-            print(f"Error: could not signal PID {pid}: {e}")
+            print(f"Error: could not signal PID {d['pid']}: {e}")
             return 1
         return 0
 
-    existing = _read_daemon_status()
-    if existing:
-        print(f"Error: daemon is already running (PID {existing['pid']}, "
-              f"port {existing.get('port')}). Stop it with "
-              f"`smart_mug.py daemon --stop` first.")
-        return 1
-
     host = _flag(args, "--host", "127.0.0.1")
     port = _flag(args, "--port", 8080, int)
+
+    # Refuse if a daemon is already on the requested port. Other ports
+    # are fine; multi-cup support is the whole point.
+    existing = _read_daemon_status(port=port)
+    if existing:
+        print(f"Error: a daemon is already on port {port} "
+              f"(PID {existing['pid']}). Pick a different --port or stop "
+              f"with `smart_mug.py daemon --stop --port {port}`.")
+        return 1
 
     if not AIOHTTP_AVAILABLE:
         print("Error: aiohttp not available. Install with: uv pip install aiohttp")
@@ -1594,7 +1675,8 @@ async def cmd_daemon(args):
                 "started_at": datetime.now(timezone.utc).isoformat(),
             }
             try:
-                DAEMON_STATUS_FILE.write_text(json.dumps(status, indent=2))
+                DAEMON_DIR.mkdir(parents=True, exist_ok=True)
+                _daemon_status_file(port).write_text(json.dumps(status, indent=2))
             except OSError as e:
                 print(f"⚠ could not write status file: {e}")
 
@@ -1618,8 +1700,9 @@ async def cmd_daemon(args):
             except Exception:
                 pass
         try:
-            if DAEMON_STATUS_FILE.exists():
-                DAEMON_STATUS_FILE.unlink()
+            f = _daemon_status_file(port)
+            if f.exists():
+                f.unlink()
         except OSError:
             pass
 
@@ -1693,11 +1776,13 @@ Commands:
                                               aliased, --addr <name> resolves locally.
   daemon [--addr UUID|alias] [--host H] [--port P]
                                               Persistent BLE-connection daemon with
-                                              HTTP API. Holds one cup connected so
-                                              short-lived clients don't pay reconnect
-                                              cost or hit §4.7 silent-BLE windows.
-  daemon --status                             Show running daemon (if any).
-  daemon --stop                               Send SIGTERM to running daemon.
+                                              HTTP API. Multiple daemons may run, one
+                                              per port — e.g. one per cup. Avoids
+                                              §4.7 silent-BLE windows by never
+                                              disconnecting.
+  daemon --status                             List all running daemons.
+  daemon --stop [--port N | --all]            Stop one (--port required when ≥2)
+                                              or all running daemons.
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
