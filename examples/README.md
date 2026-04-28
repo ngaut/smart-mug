@@ -119,6 +119,55 @@ teach: when "explain the architecture" doesn't fit the medium,
 *tell a story whose climax is the brand*. The cup's job is to be a
 surprise on a coffee table, not a slide.
 
+### `tidb_arcade_animation.py` → `tidb_arcade.gif`
+
+**TiDB Arcade** — a 6-stage game-style animation that explains TiDB's
+value proposition through 8-bit arcade tropes. 72 frames, ≤100 so it
+fits both fw 1.6 and fw 1.7 buffers.
+
+```
+   Stage 1  TITLE        "TiDB" with arcade-corner sparkles
+   Stage 2  OVERLOAD     a lone node takes fire from both sides,
+                         flashes on each hit, then breaks under load
+                         (the sharded-MySQL fall-over moment)
+   Stage 3  POWER-UP     a "↑" descends from the top, impact halo,
+                         scale-out unlocked
+   Stage 4  CLUSTER      nodes spawn 1 → 2 → 4 → 8 with halo flashes
+                         (horizontal scalability beat)
+   Stage 5  HTAP         top row OLTP dots stream L→R while bottom
+                         row OLAP sweeps cross slower; cluster nodes
+                         flash when traffic crosses them
+   Stage 6  VICTORY      whole-display invert sting, expanding
+                         starburst, "TiDB" reveal, settles back to
+                         the steady cluster and loops
+```
+
+Each visual element is a TiDB use-case in disguise: the lone node
+breaking is *why sharded MySQL falls over*; the doubling cascade is
+*horizontal scalability*; the top/bottom split is *HTAP — OLTP and
+OLAP on the same cluster*; the boss-cleared sting is *the brand
+promise: distributed SQL that makes the boss fight winnable*.
+
+A 7-bit binary counter ticks across cols 1–7 of the bottom row to
+guarantee per-frame uniqueness — without it PIL's GIF encoder merges
+consecutive identical frames (e.g. settle holds, sting beats) and
+the cup plays a shortened sequence at the wrong pace. Reads as a
+small arcade scoreboard ticker.
+
+Pacing: at `-s 8fps` (≈125 ms/frame) the loop runs ~9 s, brisk
+arcade tempo. At `-s medium` (≈250 ms/frame) it stretches to ~18 s
+and each stage's beats land deliberately. Up to you.
+
+```bash
+# Generate (overwrites tidb_arcade.gif next to this script):
+uv run --with pillow python examples/tidb_arcade_animation.py
+
+# Send to cup at brisk arcade pace:
+/tmp/mug animate examples/tidb_arcade.gif -s 8fps
+# ...or slower so each stage breathes:
+/tmp/mug animate examples/tidb_arcade.gif -s medium
+```
+
 ### `tidb_scale_animation.py` → `tidb_scale.gif`
 
 A four-phase "horizontal scale-out" narrative for the TiDB brand:
