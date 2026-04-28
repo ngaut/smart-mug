@@ -121,9 +121,8 @@ surprise on a coffee table, not a slide.
 
 ### `tidb_morpheus_animation.py` → `tidb_morpheus.gif`
 
-**TiDB Morpheus** — continuous metamorphosis of the brand identity,
-extended with a key-visual vista at the end. 106 frames at `-s 8fps`
-(~13 s/loop). Twelve effects, each flowing straight into the next:
+**TiDB Morpheus** — brand metamorphosis (acts 1–7) + downstream-
+serving coda (acts 8–10). 102 frames at `-s 8fps` (~12 s/loop).
 
 ```
    1  GLITCH BOOT     scan-line corruption tears across the brand,
@@ -144,27 +143,32 @@ extended with a key-visual vista at the end. 106 frames at `-s 8fps`
    6  BRAND SNAP      rings collapse into the letter pixels;
                       4-ring halo bursts outward (radii 8 → 21)
    7  BRAND HOLD      clean brand + 8-node cluster (transitional)
-   8  RAIN INTRO      Matrix-style binary data-rain begins falling
-                      from the top edges, gradually densifying
-   9  CLUSTER BUILD   a 9×7 voxel cluster materializes in the
-                      left-center, with 4 floating satellite cubes
-                      orbiting at the corners; rain continues
-  10  RAYS BURST      bright lines fan out from the cluster toward
-                      the right edge (3 rays at different angles);
-                      sparkle stars wink in the right zone
-  11  ICONS POP       4 use-case icons (database, chart, document,
-                      design) appear one by one along the right
-                      edge as targets the rays are serving
-  12  VISTA HOLD      full key-visual scene — cluster + satellites
-                      + rays + icons + shimmering rain — pulses
-                      with a faint halo before looping back
+   8  BEACON          tiny 7-pixel anchor cluster at the left.
+                      One beam at a time fires from the anchor to
+                      one of 4 destinations on the right; on
+                      arrival, a clean 4×5 use-case icon resolves
+                      (database / chart / document / data-node).
+                      4 beats × 4 frames each.
+   9  CONSTELLATION   anchor + all 4 icons + ONE active dotted
+                      connector + the addressed icon inverted.
+                      Cycles through the 4 destinations so the
+                      panel reads as "TiDB the system addressing
+                      its downstream use cases" without ever
+                      filling with overlapping fans.
+  10  CLOSE           icons fade row-by-row, anchor expands back
+                      into the canonical brand+cluster, ready for
+                      phase_glitch to re-corrupt it on the loop
 ```
 
-The last five phases (rain → cluster → rays → icons → hold) recreate
-the official PingCAP TiDB key-visual aesthetic on the 1-bit panel:
-a voxel cluster with satellite shards, light rays radiating outward,
-floating use-case icons being served, against a Matrix data-rain
-background.
+**Design lesson learned the hard way**: at 48×12 1-bit, you can't
+recreate the official PingCAP key visual literally — voxel-cluster
++ data-rain + ray-fan + use-case-icons + satellite-cubes overlaid
+on top of each other becomes pixel cacophony. The coda captures
+the *spirit* of that visual (identity central, power radiating
+outward, downstream use cases) by showing **one element at a time
+with real negative space**. Every beacon frame is `anchor + 1
+beam + 0 icons` or `anchor + 0 beams + 1 icon`. Every constellation
+frame is `anchor + 4 static icons + 1 active beam + 1 pinged icon`.
 
 The protagonist of the animation is the brand itself: typed,
 glitched, repaired, flipped, extruded, shattered, scattered,

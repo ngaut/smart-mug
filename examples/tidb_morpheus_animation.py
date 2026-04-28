@@ -373,13 +373,75 @@ def phase_settle(num_frames=3):
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Phase 8+ — VISTA (extends the loop with TiDB key-visual aesthetic):
-#   data-rain background + voxel cluster with floating satellite
-#   cubes + light rays radiating right + use-case icons popping in.
-# Inspired by the official PingCAP key visual: red voxel cube
-# cluster + matrix data-rain + colored rays + floating use-case
-# icons. We approximate it in 1-bit on a 48×12 panel.
+# Coda — TiDB-as-system, on a 48×12 1-bit panel.  Discipline:
+#   • NO brand text (the prior 7 phases already burned the brand
+#     into the viewer's eye; a 5-row 19-col text block here would
+#     eat 40% of the panel and force beams to plow through it)
+#   • Tiny "TiDB" anchor at the left = a 3-dot cluster at row 6
+#   • 4 icons in a 2×2 grid on the right, each 4×4, with clean
+#     gutters between them (negative space matters at 48×12)
+#   • One beam at a time, sweeping; on arrival the icon at that
+#     destination resolves
+#   • Constellation phase shows everything together, but with
+#     dotted (every-3rd-pixel) connector lines — sparse enough
+#     that the icons stay readable
 # ─────────────────────────────────────────────────────────────────────
+
+
+# Anchor: where the TiDB cluster lives in the coda
+ANCHOR_X = 4
+ANCHOR_Y = 6
+
+
+def stamp_anchor(img):
+    """Tiny 3-dot cluster at the left, representing 'TiDB the system'."""
+    pts = [(ANCHOR_X, ANCHOR_Y),
+           (ANCHOR_X - 1, ANCHOR_Y - 1),
+           (ANCHOR_X - 1, ANCHOR_Y + 1),
+           (ANCHOR_X + 1, ANCHOR_Y),
+           (ANCHOR_X - 2, ANCHOR_Y),
+           (ANCHOR_X, ANCHOR_Y - 2),
+           (ANCHOR_X, ANCHOR_Y + 2)]
+    for x, y in pts:
+        if 0 <= x < W and 0 <= y < H:
+            img.putpixel((x, y), 1)
+
+
+# 4 use-case icons, each 4 rows × 5 cols.  Distinguishable
+# silhouettes that read cleanly at 1-bit even on a tiny display.
+ICON_DB = [        # database barrel
+    "·███·",
+    "█···█",
+    "█···█",
+    "·███·",
+]
+ICON_CHART = [     # 3 ascending bars
+    "····█",
+    "···██",
+    "··███",
+    "·████",
+]
+ICON_DOC = [       # document with horizontal lines
+    "█████",
+    "█···█",
+    "█···█",
+    "█████",
+]
+ICON_NODE = [      # outlined diamond
+    "··█··",
+    "·█·█·",
+    "█···█",
+    "·███·",
+]
+
+
+def stamp_glyph(img, glyph, x0, y0):
+    for ry, row in enumerate(glyph):
+        for rx, ch in enumerate(row):
+            if ch == "█":
+                px, py = x0 + rx, y0 + ry
+                if 0 <= px < W and 0 <= py < H:
+                    img.putpixel((px, py), 1)
 
 # Voxel cluster geometry: a 9×7 isometric-ish stack centered around
 # (CX, CY). Hand-pixeled so it reads as a chunky 3D mass.
@@ -552,31 +614,124 @@ def phase_icons_pop(num_frames=10):
 
 
 def phase_vista_hold(num_frames=4):
-    """Final hold — full key-visual scene: cluster, satellites, rays,
-    all icons, background rain shimmering. Slight rain motion every
-    frame keeps it feeling alive."""
+    # legacy stub — superseded by the coda phases below.  Kept so
+    # external callers don't break.  Returns an empty list.
+    return []
+
+
+# Beam emanates from the right edge of the anchor cluster.  All beam
+# targets are in a 2×2 grid in the right half of the panel — clean
+# horizontal/vertical separation between targets, no diagonals
+# crossing the anchor.
+BEAM_ORIGIN_X = ANCHOR_X + 2
+BEAM_ORIGIN_Y = ANCHOR_Y
+
+# Icon anchor positions (top-left corners) — 2×2 grid in cols 28-44,
+# rows 1-9.  4 cols of horizontal gutter between left/right column.
+# Icon size: 4×5.
+ICON_POSITIONS_2X2 = [
+    (29, 1, ICON_DB),     # top-left   (rows 1-4)
+    (40, 1, ICON_CHART),  # top-right  (rows 1-4)
+    (29, 7, ICON_DOC),    # bottom-left (rows 7-10)
+    (40, 7, ICON_NODE),   # bottom-right (rows 7-10)
+]
+
+# Beam targets = approximate centers of each icon
+BEAM_TARGETS = [(ix + 2, iy + 2, icon) for ix, iy, icon in ICON_POSITIONS_2X2]
+
+
+def dotted_line(img, x0, y0, x1, y1, period=2):
+    """Bresenham line, rendered as every-Nth pixel so it reads as
+    'beam of light' instead of a solid wall."""
+    dx, dy = abs(x1 - x0), abs(y1 - y0)
+    steps = max(dx, dy, 1)
+    for k in range(steps + 1):
+        if k % period == 0:
+            px = int(round(x0 + (x1 - x0) * k / steps))
+            py = int(round(y0 + (y1 - y0) * k / steps))
+            if 0 <= px < W and 0 <= py < H:
+                img.putpixel((px, py), 1)
+
+
+def phase_beacon(num_frames=16):
+    """Anchor cluster at left.  ONE beam at a time fires toward a
+    target on the right; 3 beam-progress frames + 1 icon-arrival
+    frame per beat × 4 beats = 16 frames.  Beams travel through
+    rows that don't intersect the anchor (anchor at row 6, beams
+    fan to rows 3 and 9)."""
+    frames = []
+    for beat in range(4):
+        target_x, target_y, icon = BEAM_TARGETS[beat]
+        # 3-frame beam progression
+        for step in range(3):
+            f = blank()
+            stamp_anchor(f)
+            progress = (step + 1) / 3
+            ex = int(round(BEAM_ORIGIN_X + (target_x - BEAM_ORIGIN_X) * progress))
+            ey = int(round(BEAM_ORIGIN_Y + (target_y - BEAM_ORIGIN_Y) * progress))
+            dotted_line(f, BEAM_ORIGIN_X, BEAM_ORIGIN_Y, ex, ey, period=2)
+            frames.append(f)
+        # 1-frame icon-arrival (no beam, just anchor + icon resolved
+        # at destination)
+        f = blank()
+        stamp_anchor(f)
+        ix, iy, icon_g = ICON_POSITIONS_2X2[beat]
+        stamp_glyph(f, icon_g, ix, iy)
+        frames.append(f)
+    return frames
+
+
+def phase_constellation(num_frames=10):
+    """All 4 icons stay visible.  One icon pings per frame, and
+    ONLY the connector to the currently-pinging icon is drawn —
+    so each frame has anchor + 4 icons + 1 dotted beam + 1 ping.
+    The eye sees the anchor 'addressing' each downstream use case
+    in turn, without the panel ever filling with overlapping fans."""
     frames = []
     for t in range(num_frames):
         f = blank()
-        draw_rain(f, t + 31, density=6)
-        draw_cluster(f, scale=1.0)
-        for (tx, ty) in [(W - 1, 1), (W - 1, H // 2), (W - 1, H - 2)]:
-            line(f, VOXEL_CX + 4, VOXEL_CY, tx, ty)
-        for i, (ix0, iy0) in enumerate(ICON_POSITIONS):
-            for dx, dy in ICONS[i]:
-                x, y = ix0 + dx, iy0 + dy
+        stamp_anchor(f)
+        # 4 icons (static, in their final 2×2 grid)
+        for ix, iy, icon in ICON_POSITIONS_2X2:
+            stamp_glyph(f, icon, ix, iy)
+        # active connector — only to the currently-addressed icon
+        active = t % len(ICON_POSITIONS_2X2)
+        atx, aty, _ = BEAM_TARGETS[active]
+        dotted_line(f, BEAM_ORIGIN_X, BEAM_ORIGIN_Y, atx, aty, period=2)
+        # ping: invert the addressed icon's bounding box
+        pix, piy, picon = ICON_POSITIONS_2X2[active]
+        for dy in range(len(picon)):
+            row = picon[dy]
+            for dx in range(len(row)):
+                x, y = pix + dx, piy + dy
                 if 0 <= x < W and 0 <= y < H:
-                    f.putpixel((x, y), 1)
-        # cluster pulse: every other frame add a thin halo around the
-        # cluster centroid for "alive" feel
-        if t % 2 == 0:
-            for r in (5,):
-                for dx in range(-r, r + 1):
-                    dy = r - abs(dx)
-                    for sign in (-1, 1):
-                        x, y = VOXEL_CX + dx, VOXEL_CY + sign * dy
-                        if 0 <= x < W and 0 <= y < H:
-                            f.putpixel((x, y), 1)
+                    cur = f.getpixel((x, y))
+                    f.putpixel((x, y), 0 if cur else 1)
+        frames.append(f)
+    return frames
+
+
+def phase_close(num_frames=5):
+    """Wind down: icons fade row-by-row, anchor expands into the
+    full 8-node cluster row for a clean loop boundary back to
+    phase_glitch which corrupts the brand."""
+    frames = []
+    # 3 frames: icons fade row-by-row (4 → 2 → 0 rows kept)
+    for keep in (3, 1, 0):
+        f = blank()
+        stamp_anchor(f)
+        for ix, iy, icon in ICON_POSITIONS_2X2:
+            partial = icon[:keep]
+            stamp_glyph(f, partial, ix, iy)
+        frames.append(f)
+    # 2 frames: clean brand text + cluster at the original positions —
+    # this is the loop's "neutral" frame, and phase_glitch(t=0) builds
+    # off this by corrupting it visibly.
+    for _ in range(num_frames - 3):
+        f = blank()
+        stamp(f, "TiDB", BRAND_X, BRAND_Y)
+        for ccx, ccy in cluster_centers():
+            f.putpixel((ccx, ccy), 1)
         frames.append(f)
     return frames
 
@@ -601,12 +756,14 @@ def build_frames():
             + phase_spiral(12)
             + phase_snap(8)
             + phase_settle(3)
-            # Vista extension — TiDB key-visual aesthetic:
-            + phase_rain_intro(6)
-            + phase_cluster_assemble(8)
-            + phase_rays_burst(7)
-            + phase_icons_pop(10)
-            + phase_vista_hold(4))
+            # Coda — disciplined ending.  One element at a time, real
+            # negative space.  Captures the SPIRIT of the TiDB key
+            # visual (identity central → power radiating outward →
+            # downstream use cases) without the dense layering that
+            # turns to pixel mush at 48×12 1-bit.
+            + phase_beacon(16)
+            + phase_constellation(10)
+            + phase_close(5))
 
 
 def main():
