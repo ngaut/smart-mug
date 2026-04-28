@@ -381,7 +381,6 @@ def build_frames():
             + card("TBLS",  "3M",   10)
             + card("FAST",  "50x",  10)
             + card("IDX/s", "1M",   10)
-            + card("XREG",  "10x",  10)
             + outro(10))
 
 

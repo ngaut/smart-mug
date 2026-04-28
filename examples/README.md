@@ -137,7 +137,6 @@ with a wipe-in / hold / wipe-out beat:
    TBLS  3M    three million tables in a single cluster
    FAST  50x   50× faster on table creation
    IDX/s 1M    one million rows/sec when adding index
-   XREG  10x   10× throughput improvement on cross-region replication
    outro       "PUSH THE / ENVELOPE" + brand reveal "TIDB" centered
 ```
 
