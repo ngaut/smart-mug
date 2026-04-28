@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
-
-	"tinygo.org/x/bluetooth"
 )
 
 // Default timeouts. The 10s execute timeout matches Python's
@@ -254,47 +251,12 @@ func (c *Client) FactoryReset(_ context.Context) error {
 	return nil
 }
 
-// ReadDeviceInfo probes the standard BLE Device Information service
-// (0x180A). Returns whatever characteristics the cup populates; on
-// SGUAI-C3 fw 1.7 this comes back empty (verified 2026-04-26).
+// ReadDeviceInfo previously probed the standard BLE Device Information
+// service (0x180A). The cup doesn't expose it on either fw 1.6 or 1.7,
+// and calling dev.DiscoverServices a second time on the live link
+// corrupts tinygo's macOS backend (cmd characteristic pointer goes
+// stale → every subsequent write-with-response times out). Now a
+// no-op that returns an empty map.
 func (c *Client) ReadDeviceInfo(_ context.Context) (map[string]string, error) {
-	out := map[string]string{}
-	disUUID, _ := bluetooth.ParseUUID("0000180a-0000-1000-8000-00805f9b34fb")
-	svcs, err := c.dev.DiscoverServices([]bluetooth.UUID{disUUID})
-	if err != nil || len(svcs) == 0 {
-		return out, nil // service not present — return empty, not error
-	}
-
-	type charSpec struct {
-		uuid string
-		key  string
-		hex  bool
-	}
-	specs := []charSpec{
-		{"00002a29-0000-1000-8000-00805f9b34fb", "manufacturer", false},
-		{"00002a24-0000-1000-8000-00805f9b34fb", "model_number", false},
-		{"00002a25-0000-1000-8000-00805f9b34fb", "serial_number", false},
-		{"00002a26-0000-1000-8000-00805f9b34fb", "firmware_rev", false},
-		{"00002a27-0000-1000-8000-00805f9b34fb", "hardware_rev", false},
-		{"00002a28-0000-1000-8000-00805f9b34fb", "software_rev", false},
-		{"00002a23-0000-1000-8000-00805f9b34fb", "system_id", true},
-	}
-	for _, s := range specs {
-		uuid, _ := bluetooth.ParseUUID(s.uuid)
-		chars, err := svcs[0].DiscoverCharacteristics([]bluetooth.UUID{uuid})
-		if err != nil || len(chars) == 0 {
-			continue
-		}
-		buf := make([]byte, 64)
-		n, err := chars[0].Read(buf)
-		if err != nil || n == 0 {
-			continue
-		}
-		if s.hex {
-			out[s.key] = fmt.Sprintf("%x", buf[:n])
-		} else {
-			out[s.key] = strings.TrimRight(string(buf[:n]), "\x00")
-		}
-	}
-	return out, nil
+	return map[string]string{}, nil
 }

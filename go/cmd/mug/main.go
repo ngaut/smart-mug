@@ -69,7 +69,10 @@ func runWithClient(args []string, fn func(context.Context, *sguai.Client, []stri
 	useCache := !hasFlag(args, "--rescan")
 	forceAddr := cache.Resolve(flagValue(args, "--addr"))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Most commands finish well under a minute; `animate` may hold the
+	// connection for the duration of an animation loop (cap at 5 min:
+	// 132 frames × 1.3s = ~3 min worst case at default speed).
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	a := sguai.NewAdapter()
@@ -428,6 +431,30 @@ func cmdAnimate(ctx context.Context, c *sguai.Client, args []string) error {
 		return err
 	}
 	fmt.Println("✓ Animation uploaded — cup is now playing autonomously")
+
+	// Hold the BLE connection open for the full playback duration —
+	// matches the APK, which keeps a single persistent connection
+	// while the user is on the device page. Disconnecting mid-playback
+	// puts the cup into a silent-BLE window where reconnect fails (the
+	// firmware is busy iterating the frame buffer and either stops
+	// advertising or rejects new connections). By holding until the
+	// loop completes, we ensure the cup is back to normal advertising
+	// before we tear down the GATT link. Pass --no-hold to skip and
+	// disconnect immediately (cup will be unreachable until playback
+	// finishes — typically frames × 10 × (260-speed) ms).
+	if hasFlag(args, "--no-hold") {
+		return nil
+	}
+	msPerFrame := 10 * (260 - speed)
+	hold := time.Duration(len(frames)*msPerFrame) * time.Millisecond
+	fmt.Printf("Holding connection for ~%s while cup completes one playback loop\n", hold.Round(time.Second))
+	fmt.Println("(Ctrl+C to disconnect early — cup will be unreachable until loop ends)")
+	select {
+	case <-time.After(hold):
+		fmt.Println("✓ Playback loop complete — releasing connection")
+	case <-ctx.Done():
+		fmt.Println("⚠ Context cancelled; releasing connection early (cup may be silent-BLE for a while)")
+	}
 	return nil
 }
 
@@ -600,13 +627,19 @@ Commands:
                                              Use python/smart_mug.py image, or
                                              pass a 1-frame GIF to "animate".
   animate <gif> [-s SPEED] [-i]              Upload animation (max 132 frames).
-                  [--addr X]                 SPEED: same forms as "speed"
+                  [--no-hold] [--addr X]     SPEED: same forms as "speed"
                                              (e.g. medium, 1300ms, 2fps).
                                              Cup's existing auto-off is left
                                              untouched (matches the official
                                              app). Run "mug auto-off always"
                                              beforehand if you want the loop
                                              to play indefinitely.
+                                             By default, holds the BLE link
+                                             open for ~frames * (260-speed) *
+                                             10 ms so the cup is reachable
+                                             again after disconnect — pass
+                                             --no-hold to skip (cup will be
+                                             silent-BLE for one loop).
   reset [-y] [--addr X]                      Factory reset (DESTRUCTIVE)
   alias                                      List per-cup aliases
   alias <name> <UUID>                        Register an alias
