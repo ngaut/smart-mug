@@ -119,6 +119,38 @@ teach: when "explain the architecture" doesn't fit the medium,
 *tell a story whose climax is the brand*. The cup's job is to be a
 surprise on a coffee table, not a slide.
 
+### `tidb_envelope_animation.py` → `tidb_envelope.gif`
+
+**TiDB Envelope of Scale** — a stats-reel animation that tells the
+TiDB scalability story across six dimensions, one big number per
+card. Inspired by the *Redefining Dimensions of Scalability* and
+*One Year Later: Push the Envelope of Scale* slides.
+
+74 frames at `-s 5fps` (≈15 s/loop). Each card stamps a small 5-row
+label across the top and a BIG 5-col×7-row number across the bottom,
+with a wipe-in / hold / wipe-out beat:
+
+```
+   intro       "TIDB SCALE" wipes in left-to-right
+   DATA  PB+   petabyte+ data volume
+   QPS   1M+   millions of queries / transactions per second
+   TBLS  3M    three million tables in a single cluster
+   FAST  50x   50× faster on table creation
+   IDX/s 1M    one million rows/sec when adding index
+   XREG  10x   10× throughput improvement on cross-region replication
+   outro       "PUSH THE / ENVELOPE" + brand reveal "TIDB" centered
+```
+
+Every card has the same disciplined layout: rows 0-4 = small label,
+rows 5-11 = big number. Counter-bit anti-dedup at row 11 cols 1-7.
+No accent overlays competing with the digits; the wipe transitions
+do all the motion.
+
+```bash
+uv run --with pillow python examples/tidb_envelope_animation.py
+/tmp/mug animate examples/tidb_envelope.gif -s 5fps
+```
+
 ### `tidb_morph.gif` (frozen snapshot)
 
 Frozen snapshot of `tidb_morpheus.gif` at the in-place-morph coda
