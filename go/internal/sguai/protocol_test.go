@@ -79,6 +79,36 @@ func TestBuildSetMode(t *testing.T) {
 	}
 }
 
+func TestBuildReadDynamicSpeed(t *testing.T) {
+	// 6-byte form, no trailing 0x00 — newer feature bytes (0x16+) all
+	// use this form per the APK survey. Matches
+	// app-service.pretty.js:51459.
+	want := []byte{0xFF, 0x55, 0x06, 0x00, 0x01, 0x24}
+	got := BuildReadDynamicSpeed()
+	if !bytes.Equal(got, want) {
+		t.Errorf("got % X, want % X", got, want)
+	}
+	if len(got) != 6 {
+		t.Errorf("must be exactly 6 bytes, got %d", len(got))
+	}
+}
+
+func TestBuildSetDynamicSpeed(t *testing.T) {
+	for _, speed := range []byte{1, 50, 130, 200, 255} {
+		got, err := BuildSetDynamicSpeed(speed)
+		if err != nil {
+			t.Fatalf("speed %d: unexpected error: %v", speed, err)
+		}
+		want := []byte{0xFF, 0x55, 0x07, 0x00, 0x02, 0x24, speed}
+		if !bytes.Equal(got, want) {
+			t.Errorf("speed %d: got % X, want % X", speed, got, want)
+		}
+	}
+	if _, err := BuildSetDynamicSpeed(0); err == nil {
+		t.Error("speed 0 should be rejected")
+	}
+}
+
 func TestBuildSetAutoOff(t *testing.T) {
 	// All 5 valid codes
 	for code := byte(0); code <= 4; code++ {

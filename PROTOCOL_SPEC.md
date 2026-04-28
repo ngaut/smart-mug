@@ -117,6 +117,7 @@ Control"; reverse-engineering shows they are simply read vs. write — the
 | `0x0B` | ✔ | ✔ | Temperature unit (0=°C, 1=°F) |
 | `0x17` | — | ✔ | Greeting text (UTF-16BE codepoints, sub-cmd `0x01`) |
 | `0x23` | ✔ | ✔ | Display motion mode (0=static, 1=scroll**Left**, 2=scroll**Right**, 3=flash) |
+| `0x24` | ✔ | ✔ | Persistent dynamic-speed (1..255). Separate from the 0x26 prologue speed byte. APK formula: `ms_per_frame = 10 * (260 - value)`. |
 | `0x25` | — | ✔ | **Static** bitmap upload (72-byte payload) |
 | `0x26` | — | ✔ | **Animation** upload (prologue + per-frame, see §4.6) |
 | `0x27` | ✔ | ✔ | Auto-screen-off duration code (0..4, see §4.7) |
@@ -567,6 +568,8 @@ exhaustion it surfaces an error to the user. Successful writes are paced
 | Read Temp Unit | `0x01` | `0x0B` | 1 B `0x00` | 7 | 0=°C, 1=°F |
 | Set Greeting | `0x02` | `0x17` | `<sub>` + UTF-16BE | 7 + 2K | `sub=0x01` + K UTF-16 code units, or `sub=0x00` (no data) to clear |
 | Set Motion | `0x02` | `0x23` | 1 B mode | 7 | 0=static, 1=←, 2=→, 3=flash (verified vs APK) |
+| Read Speed | `0x01` | `0x24` | — | 6 | 6-byte read form per APK |
+| Set Speed | `0x02` | `0x24` | 1 B speed | 7 | Persistent (1..255). Separate from 0x26 prologue speed. |
 | Set Static Image | `0x02` | `0x25` | 72 B bitmap | 78 (`0x4E`) | One frame |
 | Animation Prologue | `0x02` | `0x26` | `<count><speed>` | 8 | Begin N-frame animation |
 | Animation Frame | `0x02` | `0x26` | `<idx><speed>` + 72 B | 80 (`0x50`) | Store frame (×N) |

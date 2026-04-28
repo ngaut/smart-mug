@@ -164,6 +164,28 @@ def test_dynamic_mode_byte_values():
 
 
 # -----------------------------------------------------------------------------
+# Dynamic speed (feature 0x24) — separate persistent setting from the
+# 0x26 prologue speed byte. Read frame is 6-byte form per APK survey.
+# -----------------------------------------------------------------------------
+
+def test_read_dynamic_speed_is_six_bytes():
+    """6-byte form (no trailing 0x00) — matches the APK at
+    app-service.pretty.js:51459. Newer feature bytes use this form."""
+    text = (Path(__file__).resolve().parent / "smart_mug.py").read_text()
+    assert "[0xFF, 0x55, 0x06, 0x00, 0x01, 0x24]" in text, (
+        "read_dynamic_speed must be the 6-byte form"
+    )
+
+
+def test_set_dynamic_speed_frame_literal():
+    """7-byte form: FF 55 07 00 02 24 <speed>."""
+    text = (Path(__file__).resolve().parent / "smart_mug.py").read_text()
+    assert "[0xFF, 0x55, 0x07, 0x00, 0x02, 0x24, speed]" in text, (
+        "set_dynamic_speed frame literal changed"
+    )
+
+
+# -----------------------------------------------------------------------------
 # Auto-off codes table — must match the APK's autoStandby.dataList exactly.
 # -----------------------------------------------------------------------------
 

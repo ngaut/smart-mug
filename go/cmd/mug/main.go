@@ -43,6 +43,8 @@ func main() {
 		os.Exit(runWithClient(args, cmdRead))
 	case "auto-off":
 		os.Exit(runWithClient(args, cmdAutoOff))
+	case "speed", "dynamic-speed":
+		os.Exit(runWithClient(args, cmdSpeed))
 	case "greeting":
 		os.Exit(runWithClient(args, cmdGreeting))
 	case "mode":
@@ -196,6 +198,37 @@ func cmdAutoOff(ctx context.Context, c *sguai.Client, args []string) error {
 		return err
 	}
 	fmt.Printf("✓ Auto-off → code %d (%s)\n", code, sguai.AutoOffCodes[code])
+	return nil
+}
+
+// cmdSpeed gets/sets the persistent dynamic-speed feature byte (0x24).
+// Distinct from `animate -s`, which sets the per-animation speed byte
+// in the 0x26 prologue.
+func cmdSpeed(ctx context.Context, c *sguai.Client, args []string) error {
+	pos := positional(args)
+	if len(pos) == 0 {
+		speed, err := c.ReadDynamicSpeed(ctx)
+		if err != nil {
+			return err
+		}
+		// APK's preview formula: ms_per_frame = 10 * (260 - speed).
+		// See PROTOCOL_SPEC.md §4.6.
+		var ms int
+		if speed >= 1 {
+			ms = 10 * (260 - int(speed))
+		}
+		fmt.Printf("Dynamic speed: %d (~%d ms/frame per APK formula)\n", speed, ms)
+		return nil
+	}
+	n, err := strconv.Atoi(pos[0])
+	if err != nil || n < 1 || n > 255 {
+		return fmt.Errorf("speed must be an integer 1..255 (got %q)", pos[0])
+	}
+	if err := c.SetDynamicSpeed(ctx, byte(n)); err != nil {
+		return err
+	}
+	ms := 10 * (260 - n)
+	fmt.Printf("✓ Dynamic speed → %d (~%d ms/frame)\n", n, ms)
 	return nil
 }
 
@@ -462,6 +495,9 @@ Commands:
   read [field ...] [--addr X] [--rescan]     Read version|temperature|battery|all
   auto-off [<preset>] [--addr X] [--rescan]  Get/set screen-off duration
                                              presets: always | 30s | 1m | 3m | 5m
+  speed [<1..255>] [--addr X]                Get/set persistent dynamic-speed
+                                             (feature 0x24). Default 130.
+                                             ms_per_frame = 10 * (260 - speed)
   greeting <msg> [--mode M] [--addr X]       Set greeting text (mode optional)
   mode <mode> [--addr X]                     static|scrollRight|scrollLeft|flashing
   image <file> [--addr X]                    STUB — not yet implemented in Go.

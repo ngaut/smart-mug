@@ -40,15 +40,16 @@ const (
 
 // Feature bytes (offset 5). See PROTOCOL_SPEC.md §3.2.
 const (
-	FeatureTemperature = 0x01
-	FeatureBattery     = 0x02
-	FeatureVersion     = 0x09
-	FeatureTempUnit    = 0x0B
-	FeatureGreeting    = 0x17
-	FeatureMode        = 0x23
-	FeatureStaticImage = 0x25
-	FeatureAnimation   = 0x26
-	FeatureAutoOff     = 0x27
+	FeatureTemperature  = 0x01
+	FeatureBattery      = 0x02
+	FeatureVersion      = 0x09
+	FeatureTempUnit     = 0x0B
+	FeatureGreeting     = 0x17
+	FeatureMode         = 0x23 // 设置/获取动态效果 — Set/Get Dynamic Effect
+	FeatureDynamicSpeed = 0x24 // 设置/获取动态速度 — Set/Get Dynamic Speed
+	FeatureStaticImage  = 0x25
+	FeatureAnimation    = 0x26
+	FeatureAutoOff      = 0x27
 	FeatureFactoryReset = 0xFC
 )
 
@@ -139,6 +140,24 @@ func BuildReadCommand(feature byte) []byte {
 // See PROTOCOL_SPEC.md §4.7.
 func BuildReadAutoOff() []byte {
 	return []byte{0xFF, 0x55, 0x06, 0x00, FuncRead, FeatureAutoOff}
+}
+
+// BuildReadDynamicSpeed returns the 6-byte read frame for 0x24
+// (matches the APK at app-service.pretty.js:51459). The newer feature
+// bytes (0x16+) all use the 6-byte read form rather than the 7-byte
+// form with a trailing 0x00 used by 0x01/0x02/0x09.
+func BuildReadDynamicSpeed() []byte {
+	return []byte{0xFF, 0x55, 0x06, 0x00, FuncRead, FeatureDynamicSpeed}
+}
+
+// BuildSetDynamicSpeed returns the frame for `set persistent dynamic
+// speed`. speed must be 1..255 (0 is unspecified by firmware). See
+// PROTOCOL_SPEC.md §4.6 for the speed-byte interpretation.
+func BuildSetDynamicSpeed(speed byte) ([]byte, error) {
+	if speed == 0 {
+		return nil, errors.New("speed must be 1..255 (0 is unspecified by firmware)")
+	}
+	return []byte{0xFF, 0x55, 0x07, 0x00, FuncWrite, FeatureDynamicSpeed, speed}, nil
 }
 
 // BuildSetMode returns the frame for `set dynamic mode`. Mode is one of

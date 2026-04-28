@@ -574,6 +574,47 @@ class BLEManager:
             return f"{resp[-2]}.{resp[-1]}"
         return ".".join(str(b) for b in resp)
 
+    async def read_dynamic_speed(self):
+        """Read the persistent dynamic-speed setting (feature 0x24).
+
+        Frame: ``FF 55 06 00 01 24`` (6-byte read form, matches the
+        APK exactly at ``app-service.pretty.js:51459``). Returns the
+        raw speed byte (1..255 in normal use; firmware may return 0 if
+        never set).
+
+        This is a SEPARATE firmware variable from the per-animation
+        speed byte sent in the 0x26 prologue. The APK's UI slider
+        drives both at once, but they're distinct on the cup. Reading
+        this returns the value last persisted via
+        :py:meth:`set_dynamic_speed` (or the firmware default).
+
+        Per the APK's preview formula
+        (``app-service.pretty.js:11298``): ``ms_per_frame = 10 * (260
+        - speed)``. See PROTOCOL_SPEC.md §4.6.
+        """
+        resp = await self.execute_command([0xFF, 0x55, 0x06, 0x00, 0x01, 0x24])
+        return resp[-1]
+
+    async def set_dynamic_speed(self, speed):
+        """Set the persistent dynamic-speed setting (feature 0x24).
+
+        Frame: ``FF 55 07 00 02 24 <speed>``. ``speed`` must be 1..255;
+        0 is unspecified by firmware. See :py:meth:`read_dynamic_speed`
+        for the value's interpretation.
+        """
+        if not 1 <= speed <= 255:
+            raise ValueError("speed must be 1..255 (0 is unspecified by firmware)")
+        command = [0xFF, 0x55, 0x07, 0x00, 0x02, 0x24, speed]
+        async with self._lock:
+            try:
+                await self._execute_locked(command, timeout=10.0)
+            except asyncio.TimeoutError:
+                # Cup occasionally drops the echo for a config write;
+                # the BLE-layer ACK is sufficient. Same pattern as
+                # set_dynamic_mode and set_auto_off.
+                pass
+        return True
+
     async def factory_reset(self):
         """Send the factory-reset command (0xFC). DESTRUCTIVE — wipes
         all cup data: saved animations, custom settings, and pairing.
@@ -1412,6 +1453,44 @@ def cmd_alias(args):
     return 0
 
 
+async def cmd_speed(args):
+    """Get or set the persistent dynamic-speed setting (feature 0x24).
+
+    Distinct from ``animate``'s ``-s`` flag, which sets the per-animation
+    speed byte in the 0x26 prologue. The APK's UI slider drives both at
+    once but they're separate firmware variables.
+
+    Examples:
+      speed                 → read current value, show approximate
+                              ms/frame per APK formula
+      speed 130             → set to 130 (default)
+      speed 200             → faster
+    """
+    arg = _first_positional(args)
+    try:
+        async with connected_manager(args) as m:
+            if arg is None:
+                speed = await m.read_dynamic_speed()
+                ms = 10 * (260 - speed) if 1 <= speed <= 255 else "?"
+                print(f"Dynamic speed: {speed} (~{ms} ms/frame per APK formula)")
+                return 0
+            try:
+                speed = int(arg)
+            except ValueError:
+                print(f"Error: speed must be an integer 1..255 (got {arg!r})")
+                return 1
+            if not 1 <= speed <= 255:
+                print(f"Error: speed must be 1..255 (got {speed})")
+                return 1
+            await m.set_dynamic_speed(speed)
+            ms = 10 * (260 - speed)
+            print(f"✓ Dynamic speed → {speed} (~{ms} ms/frame)")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 async def cmd_reset(args):
     """Factory-reset the cup. ALL DATA WILL BE ERASED.
 
@@ -1955,6 +2034,9 @@ Commands:
                                               or all running daemons.
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
+  speed [<1..255>] [--rescan]                 Set or read persistent dynamic-speed
+                                              (feature 0x24). Default 130.
+                                              ms_per_frame = 10 * (260 - speed)
   reset [-y] [--rescan]                       Factory reset (DESTRUCTIVE — wipes
                                               all cup data; -y to skip prompt)
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
@@ -2016,6 +2098,8 @@ async def main():
         return cmd_alias(sys.argv[2:])
     elif cmd in ('auto-off', 'autooff', 'screen-off'):
         return await cmd_auto_off(sys.argv[2:])
+    elif cmd in ('speed', 'dynamic-speed'):
+        return await cmd_speed(sys.argv[2:])
     elif cmd == 'repl':
         return await cmd_repl(sys.argv[2:])
     elif cmd == 'daemon':

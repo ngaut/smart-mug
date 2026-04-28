@@ -97,6 +97,41 @@ func (c *Client) SetAutoOff(ctx context.Context, code byte) error {
 	return nil
 }
 
+// ReadDynamicSpeed returns the persistent dynamic-speed setting
+// (feature 0x24). See SetDynamicSpeed for the semantic relationship
+// to the per-animation speed byte in the 0x26 prologue.
+func (c *Client) ReadDynamicSpeed(ctx context.Context) (byte, error) {
+	resp, err := c.ExecuteCommand(ctx, BuildReadDynamicSpeed(), readTimeout)
+	if err != nil {
+		return 0, err
+	}
+	if len(resp) == 0 {
+		return 0, errors.New("empty dynamic-speed response")
+	}
+	return resp[len(resp)-1], nil
+}
+
+// SetDynamicSpeed writes the persistent dynamic-speed setting
+// (feature 0x24). speed range 1..255, larger = faster. This is a
+// SEPARATE firmware variable from the per-animation speed byte in
+// the 0x26 prologue; the APK's UI slider drives both at once but
+// they're independent on the cup.
+func (c *Client) SetDynamicSpeed(ctx context.Context, speed byte) error {
+	cmd, err := BuildSetDynamicSpeed(speed)
+	if err != nil {
+		return err
+	}
+	if _, err := c.ExecuteCommand(ctx, cmd, executeTimeout); err != nil {
+		// Cup occasionally drops the echo notification on a config
+		// write — same pattern as SetDynamicMode and SetAutoOff.
+		if errors.Is(err, ErrResponseTimeout) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 // SetDynamicMode writes the display motion mode (static / scrollRight /
 // scrollLeft / flashing).
 func (c *Client) SetDynamicMode(ctx context.Context, mode string) error {
