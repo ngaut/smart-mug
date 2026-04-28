@@ -285,7 +285,13 @@ func cmdAnimate(ctx context.Context, c *sguai.Client, args []string) error {
 	}
 	fmt.Printf("✓ %d frame(s) loaded\n", len(frames))
 
-	if hasFlag(args, "--keep-alive") {
+	// Match Python's default behavior on origin/main: keep-alive is ON
+	// by default, opt out via --no-keep-alive. Setting auto-off=0 makes
+	// the cup display stay lit so the animation plays continuously after
+	// disconnect — but it also triggers the §4.7 silent-BLE side effect
+	// (cup may not appear in next scan until animation playback ends).
+	keepAlive := !hasFlag(args, "--no-keep-alive")
+	if keepAlive {
 		if err := c.SetAutoOff(ctx, 0); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠ Could not disable auto-off (%v); proceeding anyway\n", err)
 		} else {
@@ -459,8 +465,10 @@ Commands:
   greeting <msg> [--mode M] [--addr X]       Set greeting text (mode optional)
   mode <mode> [--addr X]                     static|scrollRight|scrollLeft|flashing
   image <file> [--addr X]                    (not yet implemented in Go port)
-  animate <gif> [-s SPEED] [--addr X]        Upload animation (max 132 frames)
-                  [--keep-alive] [-i]
+  animate <gif> [-s SPEED] [--addr X]        Upload animation (max 132 frames).
+                  [--no-keep-alive] [-i]     Sets auto-off=0 by default (continuous
+                                             playback); pass --no-keep-alive to
+                                             preserve the cup's existing setting.
   reset [-y] [--addr X]                      Factory reset (DESTRUCTIVE)
   alias                                      List per-cup aliases
   alias <name> <UUID>                        Register an alias

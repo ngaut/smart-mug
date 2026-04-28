@@ -57,6 +57,22 @@ client-side. The 6-byte `read_auto_off` form matches the APK exactly.
 The firmware-version handshake fires on every connect, mirroring the
 APK behavior at `app-service.pretty.js:49572-49582`.
 
+## Behavioral differences vs Python
+
+A few choices intentionally diverge from Python; output bitmaps for
+the same source GIF will not be byte-identical between Python and Go.
+
+- **GIF resize uses nearest-neighbor** (Python uses Lanczos). NN
+  avoids anti-aliased pixels landing on the threshold boundary and
+  flickering between frames; the trade-off is slightly blockier
+  rescaling for small source GIFs.
+- **Threshold is hardcoded to 128** for `animate`. Python's
+  `--threshold` / `-t` flag is not yet ported. Use `--invert` / `-i`
+  if your GIF has the wrong polarity.
+- **`image` subcommand is a stub.** Use `animate` with a 1-frame GIF,
+  or use Python's `smart_mug.py image` for static images that need
+  Floyd-Steinberg / Atkinson dithering.
+
 ## Cross-tool compatibility
 
 The cache file at `~/.smart_mug_cache.json` is the same on-disk format

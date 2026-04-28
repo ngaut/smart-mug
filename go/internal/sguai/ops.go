@@ -23,6 +23,11 @@ const (
 	animMaxRetries    = 10
 )
 
+// ErrResponseTimeout is returned when ExecuteCommand doesn't receive a
+// notification within the deadline. Use ``errors.Is(err, ErrResponseTimeout)``
+// rather than string matching.
+var ErrResponseTimeout = errors.New("device response timeout")
+
 // ReadVersion returns the cup's firmware version as "X.Y" (e.g. "1.7").
 func (c *Client) ReadVersion(ctx context.Context) (string, error) {
 	resp, err := c.ExecuteCommand(ctx, BuildReadCommand(FeatureVersion), readTimeout)
@@ -84,7 +89,7 @@ func (c *Client) SetAutoOff(ctx context.Context, code byte) error {
 	// notification on a config write — we treat the timeout as success
 	// because the BLE-layer ACK is already sufficient.
 	if _, err := c.ExecuteCommand(ctx, cmd, executeTimeout); err != nil {
-		if strings.Contains(err.Error(), "device response timeout") {
+		if errors.Is(err, ErrResponseTimeout) {
 			return nil
 		}
 		return err
@@ -100,7 +105,7 @@ func (c *Client) SetDynamicMode(ctx context.Context, mode string) error {
 		return err
 	}
 	if _, err := c.ExecuteCommand(ctx, cmd, executeTimeout); err != nil {
-		if strings.Contains(err.Error(), "device response timeout") {
+		if errors.Is(err, ErrResponseTimeout) {
 			return nil
 		}
 		return err

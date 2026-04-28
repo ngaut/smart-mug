@@ -13,6 +13,11 @@ import (
 	"github.com/ngaut/smart-mug/go/internal/cache"
 )
 
+// writeThrottle matches Python's WRITE_THROTTLE_S (rt(20) in the official
+// APK's GET_BLE_WRITE action). Applied before every command except
+// per-frame animation writes.
+const writeThrottle = 20 * time.Millisecond
+
 // Adapter wraps tinygo's DefaultAdapter so callers don't need to know
 // the bluetooth package directly. Enable() must be called once before
 // any Find/Connect.
@@ -211,8 +216,11 @@ type Client struct {
 //	connect → wait 2s → discover service+chars → subscribe → wait 500 ms
 //	→ read firmware version (handshake gate)
 func (a *Adapter) Connect(ctx context.Context, addrStr string) (*Client, error) {
-	addr := bluetooth.Address{}
-	addr.Set(addrStr)
+	uuid, err := bluetooth.ParseUUID(addrStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid BLE address %q: %w", addrStr, err)
+	}
+	addr := bluetooth.Address{UUID: uuid}
 
 	fmt.Printf("Connecting to %s...\n", addrStr)
 	dev, err := a.a.Connect(addr, bluetooth.ConnectionParams{
@@ -320,27 +328,44 @@ func (c *Client) handleNotify(buf []byte) {
 }
 
 // Write is fire-and-forget. Acquires the mutex so concurrent callers
-// (e.g. animation upload + a status read) can't interleave.
+// (e.g. animation upload + a status read) can't interleave. Applies
+// the 20 ms pre-write throttle that matches the official APK's
+// GET_BLE_WRITE action.
 func (c *Client) Write(data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	time.Sleep(writeThrottle)
 	return c.writeLocked(data)
 }
 
-// writeUnsync is the lock-free body of Write. Caller must hold c.mu.
+// writeLocked is the lock-free body of Write WITHOUT throttle.
+// Used by per-frame animation writes (which apply their own pacing).
+// Caller must hold c.mu.
 func (c *Client) writeLocked(data []byte) error {
 	_, err := c.cmdChar.Write(data)
 	return err
 }
 
 // ExecuteCommand writes a request, waits for the next notification on
-// the response characteristic, and returns the parsed payload.
+// the response characteristic, and returns the parsed payload. Applies
+// the 20 ms pre-write throttle.
+//
+// Race-safety: the response-channel slot is set BEFORE the write goes
+// out, so any notification arriving after the write (the one we want)
+// will land in our channel. We also wrap with a brief drain-then-bind
+// step in case the previous command's late echo is still in flight —
+// the cup occasionally sends them up to a few hundred ms after the
+// originating write.
 func (c *Client) ExecuteCommand(ctx context.Context, data []byte, timeout time.Duration) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	ch := make(chan []byte, 1)
 	c.rspMu.Lock()
+	// Drain any stale buffered notification that may have been queued
+	// against a previous (now-stopped) channel; the handler drops sends
+	// when the active channel is full or absent, but we install a fresh
+	// channel anyway for clarity.
 	c.rsp = ch
 	c.rspMu.Unlock()
 	defer func() {
@@ -349,6 +374,7 @@ func (c *Client) ExecuteCommand(ctx context.Context, data []byte, timeout time.D
 		c.rspMu.Unlock()
 	}()
 
+	time.Sleep(writeThrottle)
 	if err := c.writeLocked(data); err != nil {
 		return nil, err
 	}
@@ -357,7 +383,7 @@ func (c *Client) ExecuteCommand(ctx context.Context, data []byte, timeout time.D
 	case raw := <-ch:
 		return ParseResponse(raw), nil
 	case <-time.After(timeout):
-		return nil, errors.New("device response timeout")
+		return nil, ErrResponseTimeout
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

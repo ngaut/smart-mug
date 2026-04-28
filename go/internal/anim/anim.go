@@ -21,6 +21,12 @@ import (
 // implementation: source-bright pixels (≥ threshold) → grid value true
 // (LED on); source-dark → false. Use invert=true to flip polarity for
 // black-on-white logos.
+//
+// GIF disposal modes are honored: dispose=0/1 keeps the previous frame
+// as background, dispose=2 restores the canvas to the GIF's background
+// color in the dirty rect, and dispose=3 restores the previous frame.
+// Without this, optimized GIFs (the typical case) render with stale
+// pixel ghosts.
 func LoadGIF(path string, threshold uint8, invert bool) ([][][]bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -35,22 +41,34 @@ func LoadGIF(path string, threshold uint8, invert bool) ([][][]bool, error) {
 		return nil, fmt.Errorf("%s: no frames", path)
 	}
 
-	// Composite each frame against the previous image to handle GIF
-	// disposal modes correctly. Optimized GIFs store dirty rectangles
-	// only — naive frame-by-frame extraction misses background pixels.
 	W, H := sguai.ImageWidth, sguai.ImageHeight
 	canvas := image.NewNRGBA(image.Rect(0, 0, g.Config.Width, g.Config.Height))
+	// Snapshot of the canvas BEFORE the current frame is drawn — used
+	// to support dispose=3 (restore-previous).
+	previous := image.NewNRGBA(canvas.Bounds())
 	resized := image.NewNRGBA(image.Rect(0, 0, W, H))
+
+	bg := color.NRGBA{0, 0, 0, 0}
+	if g.BackgroundIndex < uint8(len(g.Image[0].Palette)) {
+		if c, ok := g.Image[0].Palette[g.BackgroundIndex].(color.RGBA); ok {
+			bg = color.NRGBA{c.R, c.G, c.B, c.A}
+		}
+	}
+
 	out := make([][][]bool, 0, len(g.Image))
-
 	for i, frame := range g.Image {
-		// Disposal modes are advisory; for our 48×12 cup we just composite
-		// each delta onto the canvas.
-		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
+		// Save snapshot for possible dispose=3 next iteration.
+		copy(previous.Pix, canvas.Pix)
 
-		// Resize canvas → 48×12 with nearest-neighbor (cup is 1-bit; we
-		// don't want anti-aliased values landing on threshold boundaries).
-		draw.NearestNeighbor.Scale(resized, resized.Bounds(), canvas, canvas.Bounds(), draw.Over, nil)
+		dirty := frame.Bounds()
+		// Composite this delta onto the canvas. Use draw.Over to honor
+		// transparency in the GIF frame.
+		draw.Draw(canvas, dirty, frame, dirty.Min, draw.Over)
+
+		// Render canvas → 48×12 with nearest-neighbor + draw.Src so the
+		// resized buffer is fully replaced (no leftover pixels from
+		// the previous iteration ghosting through).
+		draw.NearestNeighbor.Scale(resized, resized.Bounds(), canvas, canvas.Bounds(), draw.Src, nil)
 
 		grid := make([][]bool, H)
 		for y := 0; y < H; y++ {
@@ -67,16 +85,38 @@ func LoadGIF(path string, threshold uint8, invert bool) ([][][]bool, error) {
 		}
 		out = append(out, grid)
 
-		_ = i
+		// Apply this frame's disposal so the NEXT frame composites
+		// onto the right starting state.
+		if i < len(g.Disposal) {
+			switch g.Disposal[i] {
+			case gif.DisposalBackground:
+				// Restore the dirty rect to background color.
+				fillRect(canvas, dirty, bg)
+			case gif.DisposalPrevious:
+				// Restore the dirty rect from the pre-frame snapshot.
+				draw.Draw(canvas, dirty, previous, dirty.Min, draw.Src)
+			default:
+				// gif.DisposalNone or DisposalKeep — leave canvas as-is.
+			}
+		}
 	}
 	return out, nil
+}
+
+// fillRect fills `r` (clipped to dst.Bounds()) with c.
+func fillRect(dst *image.NRGBA, r image.Rectangle, c color.NRGBA) {
+	r = r.Intersect(dst.Bounds())
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			dst.SetNRGBA(x, y, c)
+		}
+	}
 }
 
 // luminance maps a color to an 8-bit grayscale value using the standard
 // 0.299/0.587/0.114 luma weights.
 func luminance(c color.Color) uint8 {
 	r, g, b, _ := c.RGBA()
-	// RGBA returns 16-bit channels in 0..0xFFFF; scale to 8-bit.
 	r8, g8, b8 := r>>8, g>>8, b>>8
 	y := (299*r8 + 587*g8 + 114*b8 + 500) / 1000
 	if y > 255 {
