@@ -119,6 +119,20 @@ teach: when "explain the architecture" doesn't fit the medium,
 *tell a story whose climax is the brand*. The cup's job is to be a
 surprise on a coffee table, not a slide.
 
+### `tidb_morph.gif` (frozen snapshot)
+
+Frozen snapshot of `tidb_morpheus.gif` at the in-place-morph coda
+revision (102 frames, 88 KB).  Identical content to the live
+`tidb_morpheus.gif` at this point in time, but kept as a sibling
+file so the visual is preserved even if the generator script
+evolves further.  Recommended pacing: `-s 5fps` for ~20 s/loop —
+each beat of the in-place morph dwells long enough to read.
+
+```bash
+/tmp/mug animate examples/tidb_morph.gif -s 5fps
+mug auto-off 5m   # so the cup keeps the display lit between loops
+```
+
 ### `tidb_morpheus_animation.py` → `tidb_morpheus.gif`
 
 **TiDB Morpheus** — brand metamorphosis (acts 1–7) + in-place icon
