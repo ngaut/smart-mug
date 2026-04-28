@@ -119,6 +119,44 @@ teach: when "explain the architecture" doesn't fit the medium,
 *tell a story whose climax is the brand*. The cup's job is to be a
 surprise on a coffee table, not a slide.
 
+### `tidb_morpheus_animation.py` → `tidb_morpheus.gif`
+
+**TiDB Morpheus** — continuous metamorphosis of the brand identity.
+71 frames at `-s 8fps` (~9 s/loop). Seven effects, each flowing
+straight into the next so the brand is never static and never the
+same effect twice:
+
+```
+   1  GLITCH BOOT     scan-line corruption tears across the brand,
+                      then a vertical wipe self-repairs top→bottom
+   2  CARD FLIP       each letter independently rotates around its
+                      own vertical center-axis (like flipping
+                      cards); cascade staggered L→R
+   3  3D EXTRUSION    flat letters extrude into a wireframe 3D
+                      shape — silhouette of front face + offset
+                      back face + Bresenham connecting lines —
+                      then rotate to reveal depth
+   4  PIXEL SHATTER   every brand pixel becomes a particle with a
+                      randomized outward velocity; ballistic
+                      trajectories with 1-frame trails
+   5  SPIRAL REFORM   particles get captured into 3 concentric
+                      counter-rotating rings around the screen
+                      center; rings contract over time
+   6  BRAND SNAP      rings collapse into the letter pixels;
+                      4-ring halo bursts outward (radii 8 → 21)
+   7  SETTLE          clean brand + 8-node cluster, ready to loop
+```
+
+The protagonist of the animation is the brand itself: typed,
+glitched, repaired, flipped, extruded, shattered, scattered,
+gathered, and reborn — all on the same 48×12 surface, all in 9
+seconds. Seven different transforms of the same identity.
+
+```bash
+uv run --with pillow python examples/tidb_morpheus_animation.py
+/tmp/mug animate examples/tidb_morpheus.gif -s 8fps
+```
+
 ### `tidb_hyperspace_animation.py` → `tidb_hyperspace.gif`
 
 **TiDB Hyperspace** — a math-driven 1-bit demoscene piece. 61 frames,
