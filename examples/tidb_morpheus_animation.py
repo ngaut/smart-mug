@@ -737,10 +737,23 @@ def phase_close(num_frames=5):
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Power-surge coda — replaces the previous quieter beacon/constellation/
-# close phases with a music-video pacing: charge → drop → radiate →
-# lock-in → unified-pulse → reset.  Big movements that span the panel,
-# real rhythm, a synchronized DROP frame as the centerpiece.
+# In-place morph coda — TiDB letters transform DIRECTLY into use-case
+# icons in their letter positions, then back.  No separate icon zone,
+# no beam routing.  The point: TiDB *is* the system; the letters and
+# the use cases are the same thing, just looked at differently.
+#
+#   T  ↔  database barrel       (5×5 ↔ 5×5)
+#   i  ↔  small bar chart       (1×5 ↔ scaled into letter slot)
+#   D  ↔  document silhouette
+#   B  ↔  data-node diamond
+#
+# Implementation: each letter has a "source" glyph (the letter) and
+# a "destination" glyph (the icon), both rendered in the same 5-row
+# slot.  Morph by stochastic-but-deterministic subset selection:
+# at progress t∈[0,1], show source pixels with probability (1-t)
+# AND destination pixels with probability t, using a fixed-seed RNG
+# per pixel so the transition is reproducible and reads as a
+# coherent dissolve.
 # ─────────────────────────────────────────────────────────────────────
 
 
@@ -757,6 +770,176 @@ def fill_all(img):
     for y in range(H):
         for x in range(W):
             img.putpixel((x, y), 1)
+
+
+# ─── Per-letter source/destination glyphs ────────────────────────────
+# All 5 rows.  Source (letter) on the left of each pair, destination
+# (icon glyph in the same slot) on the right.  Same width as the letter
+# so the morph happens IN PLACE.
+
+# T (5 wide) → database barrel
+T_LETTER = ["█████", "··█··", "··█··", "··█··", "··█··"]
+T_ICON   = ["·███·", "█···█", "█···█", "█···█", "·███·"]
+
+# i (1 wide is too narrow for a useful icon; render it as a 3-wide
+# mini bar-chart glyph that shares the i's column anchor).  We let
+# the icon spill 1 col left and 1 col right for legibility and
+# subtract that back when morphing so the overall brand width stays
+# the same.
+I_LETTER = ["█", "·", "█", "█", "█"]
+I_ICON   = ["█", "·", "█", "█", "█"]  # i stays as i (the i in TiDB is iconic)
+
+# D (5 wide) → document silhouette
+D_LETTER = ["████·", "█···█", "█···█", "█···█", "████·"]
+D_ICON   = ["█████", "█···█", "█·███", "█···█", "█████"]
+
+# B (5 wide) → data-node diamond
+B_LETTER = ["████·", "█···█", "████·", "█···█", "████·"]
+B_ICON   = ["··█··", "·███·", "█···█", "·███·", "··█··"]
+
+
+def glyph_pixels(glyph):
+    """Return set of (rx, ry) offsets that are 'on' in the glyph."""
+    pts = set()
+    for ry, row in enumerate(glyph):
+        for rx, ch in enumerate(row):
+            if ch == "█":
+                pts.add((rx, ry))
+    return pts
+
+
+def render_morph(img, glyphs, x0_list, y0, progress, rng_seed=0):
+    """For each (src, dst, x0) tuple, render a stochastic dissolve at
+    `progress` ∈ [0,1].  At progress=0 we show all source pixels; at
+    progress=1 we show all destination pixels.  In between, each
+    pixel from each glyph is shown with a probability tied to a
+    fixed-seed RNG so the transition is smooth and deterministic."""
+    rng = random.Random(rng_seed)
+    for (src, dst), x0 in zip(glyphs, x0_list):
+        src_pts = glyph_pixels(src)
+        dst_pts = glyph_pixels(dst)
+        # union of all pixels we'll consider
+        all_pts = src_pts | dst_pts
+        for rx, ry in all_pts:
+            in_src = (rx, ry) in src_pts
+            in_dst = (rx, ry) in dst_pts
+            r = rng.random()
+            if in_src and in_dst:
+                # always-on (both letter and icon have this pixel)
+                show = True
+            elif in_src and not in_dst:
+                # source-only: fades OUT as progress rises
+                show = (r > progress)
+            elif in_dst and not in_src:
+                # destination-only: fades IN as progress rises
+                show = (r < progress)
+            else:
+                show = False
+            if show:
+                px, py = x0 + rx, y0 + ry
+                if 0 <= px < W and 0 <= py < H:
+                    img.putpixel((px, py), 1)
+
+
+def _brand_morph_layout():
+    """Compute (glyphs_list, x_offsets, y_origin) so each letter morph
+    targets the SAME (x,y) the canonical 'TiDB' stamp uses, keeping
+    the visual position identical across the full animation."""
+    glyphs = [(T_LETTER, T_ICON),
+              (I_LETTER, I_ICON),
+              (D_LETTER, D_ICON),
+              (B_LETTER, B_ICON)]
+    # Same letter spacing as stamp(): 1-px gap between glyphs
+    x_offsets = []
+    x = BRAND_X
+    for src, _ in glyphs:
+        x_offsets.append(x)
+        gw = max(len(r) for r in src)
+        x += gw + 1
+    return glyphs, x_offsets, BRAND_Y
+
+
+def phase_morph_to_icons(num_frames=10):
+    """Brand → icons, in place.  Stochastic dissolve."""
+    glyphs, x_offsets, y0 = _brand_morph_layout()
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        progress = t / max(1, num_frames - 1)
+        render_morph(f, glyphs, x_offsets, y0, progress, rng_seed=42)
+        # subtle "system pulse" beneath: a single dot wandering across
+        # the bottom row (cluster heartbeat) so the panel doesn't go
+        # static during the dissolve
+        dot_x = (t * 5) % W
+        if 0 <= dot_x < W:
+            f.putpixel((dot_x, H - 2), 1)
+        frames.append(f)
+    return frames
+
+
+def phase_icons_alive(num_frames=8):
+    """All 4 icons settled in their letter slots.  They pulse together
+    (every other frame: invert all icon pixels for a beat-on/beat-off
+    rhythm).  This is the climax — 'TiDB has BECOME the use cases.'"""
+    glyphs, x_offsets, y0 = _brand_morph_layout()
+    icons_only = [(dst, dst) for _, dst in glyphs]  # both src & dst = icon
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        render_morph(f, icons_only, x_offsets, y0, progress=1.0)
+        # heartbeat: one icon at a time gets a 1-pixel halo
+        if t % 2 == 0:
+            ping = t // 2 % 4
+            x0 = x_offsets[ping]
+            _, dst = glyphs[ping]
+            gw = max(len(r) for r in dst)
+            for dy in (-1, 5):
+                for dx in range(-1, gw + 1):
+                    px, py = x0 + dx, y0 + dy
+                    if 0 <= px < W and 0 <= py < H:
+                        f.putpixel((px, py), 1)
+            for dy in range(-1, 6):
+                for dx in (-1, gw):
+                    px, py = x0 + dx, y0 + dy
+                    if 0 <= px < W and 0 <= py < H:
+                        f.putpixel((px, py), 1)
+        # cluster heartbeat continues at the bottom
+        dot_x = ((t + num_frames) * 5) % W
+        if 0 <= dot_x < W:
+            f.putpixel((dot_x, H - 2), 1)
+        frames.append(f)
+    return frames
+
+
+def phase_morph_back(num_frames=10):
+    """Icons → brand, in place.  Reverse dissolve, same RNG seed so
+    the transition retraces its own path."""
+    glyphs, x_offsets, y0 = _brand_morph_layout()
+    # Swap source and destination
+    swapped = [(dst, src) for src, dst in glyphs]
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        progress = t / max(1, num_frames - 1)
+        render_morph(f, swapped, x_offsets, y0, progress, rng_seed=42)
+        dot_x = ((t + num_frames * 2) * 5) % W
+        if 0 <= dot_x < W:
+            f.putpixel((dot_x, H - 2), 1)
+        frames.append(f)
+    return frames
+
+
+def phase_final_settle(num_frames=3):
+    """Brand fully restored, 8-node cluster row at the bottom.  Loop
+    boundary back to phase_glitch."""
+    frames = []
+    for _ in range(num_frames):
+        f = blank()
+        stamp(f, "TiDB", BRAND_X, BRAND_Y)
+        for ccx, ccy in cluster_centers():
+            f.putpixel((ccx, ccy), 1)
+        frames.append(f)
+    return frames
 
 
 def phase_charge(num_frames=8):
@@ -948,15 +1131,14 @@ def build_frames():
             + phase_spiral(12)
             + phase_snap(8)
             + phase_settle(3)
-            # Coda — POWER SURGE.  Music-video pacing: charge, drop,
-            # climax, reset.  Big movements that span the panel, real
-            # rhythm, a synchronized DROP frame as the centerpiece.
-            + phase_charge(8)
-            + phase_drop(2)
-            + phase_radiate(8)
-            + phase_lock_in(8)
-            + phase_unified_pulse(4)
-            + phase_reset(3))
+            # Coda — IN-PLACE MORPH.  Each TiDB letter morphs IN PLACE
+            # into a use-case icon and back.  T = database barrel,
+            # i = bar chart, D = document, B = data-node diamond.
+            # No "icon zone" off to the side — the brand IS the system.
+            + phase_morph_to_icons(10)
+            + phase_icons_alive(8)
+            + phase_morph_back(10)
+            + phase_final_settle(3))
 
 
 def main():

@@ -121,10 +121,11 @@ surprise on a coffee table, not a slide.
 
 ### `tidb_morpheus_animation.py` → `tidb_morpheus.gif`
 
-**TiDB Morpheus** — brand metamorphosis (acts 1–7) + power-surge
-coda (acts 8–13). 104 frames at `-s 8fps` (~13 s/loop). Music-video
-pacing in the coda: build, drop, arrival, individual impacts,
-climax, reset.
+**TiDB Morpheus** — brand metamorphosis (acts 1–7) + in-place icon
+morph (acts 8–11). 102 frames at `-s 8fps` (~12 s/loop). The coda's
+core idea: the brand letters *literally become* the use-case icons
+in their own letter slots — T → database barrel, D → document, B →
+data-node diamond — then morph back. The brand is the system.
 
 ```
    1  GLITCH BOOT     scan-line corruption tears across the brand,
@@ -145,39 +146,38 @@ climax, reset.
    6  BRAND SNAP      rings collapse into the letter pixels;
                       4-ring halo bursts outward (radii 8 → 21)
    7  BRAND HOLD      clean brand + 8-node cluster (transitional)
-   8  CHARGE          8-node cluster pulses with growing diamond
-                      halos. 4 beats; halo radius grows 2 → 4 → 6
-                      → 9 (almost full-panel), nodes thicken with
-                      each beat. Anticipation building.
-   9  DROP            2-frame whole-panel sting: full white →
-                      full black. Breaks the rhythm, signals the
-                      "break"
-  10  RADIATE         single diamond wave expands from screen
-                      center (radii 1 → 3 → 5 → 7), then the 4
-                      use-case icons SLAM into existence with
-                      halo bursts around each, then halos drop
-                      and the anchor materializes
-  11  LOCK-IN         a STREAM packet flies anchor → each icon in
-                      turn (3-pixel mid-flight streak); on
-                      arrival the addressed icon is inverted +
-                      bordered with a 1-pixel halo: bright impact.
-                      4 beats × 2 frames
-  12  UNIFIED PULSE   climax — anchor + 4 icons + dual-radius
-                      halo rings pulse together in perfect sync,
-                      strong on/off rhythm
-  13  RESET           clean brand + 8-node cluster, neutral state,
-                      ready for phase_glitch to re-corrupt it
+   8  MORPH TO ICONS  each TiDB letter dissolves IN ITS OWN POSITION
+                      into a use-case icon: T → database barrel,
+                      i → i (unchanged — too narrow to morph), D →
+                      document with internal line, B → outlined
+                      diamond.  Stochastic pixel dissolve at fixed
+                      seed so every render reads as a coherent
+                      transition.  10 frames.
+   9  ICONS ALIVE     all 4 icons settled in the brand slots.
+                      One icon pings per beat with a 1-pixel halo.
+                      A single dot heartbeat walks across the
+                      bottom row keeping the panel never-static.
+                      8 frames.
+  10  MORPH BACK      same dissolve, reversed (icons → letters,
+                      same seed so the transition retraces its
+                      own path).  10 frames.
+  11  FINAL SETTLE    canonical brand + 8-node cluster row, the
+                      loop's neutral state for the next glitch
+                      boot.  3 frames.
 ```
 
-**Design lesson learned the hard way**: at 48×12 1-bit, you can't
-recreate the PingCAP marketing key visual literally — voxel-cluster
-+ data-rain + ray-fan + use-case-icons + satellite-cubes overlaid
-on top of each other becomes pixel cacophony. The coda captures
-the *spirit* of that visual (identity central, power radiating
-outward, downstream use cases) by showing **one element at a time
-with real negative space and music-video pacing**. The DROP frame
-(full-panel inversion) is the centerpiece: a frame the eye can't
-miss, separating "the build" from "the arrival."
+**The conceptual move that finally landed**: the brand literally
+*becomes* the use cases. No separate icon zone, no beam routing,
+no "system over here, identity over there" duality.  Each letter
+slot in the canonical "TiDB" stamp dissolves through a stochastic
+pixel mix into its corresponding use-case icon, in place, at the
+same x,y the letter occupied.  The viewer reads it as "TiDB *is*
+the system; the letters and the use cases are the same thing
+looked at differently."  Then the same dissolve reverses with the
+identical RNG seed, so the morph retraces its own path on the way
+back — the brand re-emerges from the same chaos that produced the
+icons.  ~30 frames of coda, every frame distinguishable from the
+adjacent one, every frame readable.
 
 The protagonist of the animation is the brand itself: typed,
 glitched, repaired, flipped, extruded, shattered, scattered,
