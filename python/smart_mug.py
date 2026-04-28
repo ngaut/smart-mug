@@ -964,6 +964,61 @@ curl -X POST 'http://localhost:8080/api/test?pattern=border'
 
 # CLI Commands
 
+async def _find_daemon(args):
+    """Decide whether the current command should route through a running
+    daemon. Returns the daemon's status dict (containing host/port) or
+    None if the command should open its own direct BLE connection.
+
+    Routing rules:
+      • --no-daemon in args → never route (forces direct BLE).
+      • --addr <X> in args → route only if a daemon serves that address
+        (after alias resolution). Otherwise None.
+      • No --addr → route if exactly one daemon is running. If multiple
+        daemons are running, return None — caller should fall through
+        to direct BLE (which will then refuse to auto-pick anyway).
+    """
+    if "--no-daemon" in args:
+        return None
+    daemons = _read_all_daemons()
+    if not daemons:
+        return None
+    target = _flag_value(args, "--addr")
+    target_addr = _resolve_addr_or_alias(target) if target else None
+    if target_addr:
+        for d in daemons:
+            if d.get("address") == target_addr:
+                return d
+        return None
+    if len(daemons) == 1:
+        return daemons[0]
+    return None
+
+
+def _daemon_url(d, path):
+    return f"http://{d.get('host')}:{d.get('port')}{path}"
+
+
+async def _daemon_request(d, method, path, json_body=None, params=None):
+    """Helper: make an HTTP request to a running daemon and return parsed
+    JSON. Raises on transport failures (caller should fall back to direct
+    BLE on connection errors)."""
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not installed; cannot reach daemon")
+    import aiohttp
+    timeout = aiohttp.ClientTimeout(total=120)
+    url = _daemon_url(d, path)
+    async with aiohttp.ClientSession(timeout=timeout) as s:
+        async with s.request(method, url, json=json_body, params=params) as r:
+            text = await r.text()
+            try:
+                data = json.loads(text)
+            except ValueError:
+                data = {"_raw": text}
+            if r.status >= 400:
+                raise RuntimeError(f"daemon {r.status}: {data.get('error', text)}")
+            return data
+
+
 def _flag_value(args, name):
     """Return the value following `--flag` in args, or None."""
     if name in args:
@@ -993,7 +1048,7 @@ async def connected_manager(args):
 # Flags that don't belong to any cmd-specific parser but appear in CLI args.
 # Listed here so _parse_image_opts knows to consume them silently rather than
 # warning, and `_first_positional` knows how many args to skip past.
-_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive", "--addr"}
+_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive", "--addr", "--no-daemon"}
 _GLOBAL_FLAGS_WITH_VALUE = {"--mode", "--host", "--port", "--addr"}
 
 VALID_MODES = ("static", "scrollRight", "scrollLeft", "flashing")
@@ -1137,31 +1192,50 @@ async def cmd_auto_off(args):
         "5m": 4, "5min": 4, "5minutes": 4,
     }
     arg = _first_positional(args)
+
+    # Resolve the user's input to a code (or None for read).
+    code = None
+    if arg is not None:
+        key = arg.lower().replace(" ", "").replace("_", "")
+        if key in name_to_code:
+            code = name_to_code[key]
+        else:
+            try:
+                code = int(arg)
+            except ValueError:
+                print(f"Error: expected one of {sorted(set(name_to_code))} "
+                      f"or a code 0..4 (got {arg!r})")
+                return 1
+            if code not in BLEManager.AUTO_OFF_CODES:
+                print(f"Error: code must be 0..4 (got {code})")
+                return 1
+
+    daemon = await _find_daemon(args)
+    if daemon:
+        target = daemon.get("alias") or daemon.get("address")
+        print(f"Routing via daemon at port {daemon.get('port')} → {target}")
+        try:
+            if code is None:
+                data = await _daemon_request(daemon, "GET", "/api/auto-off")
+                print(f"Auto-off: code {data.get('code')} — {data.get('label')}")
+            else:
+                data = await _daemon_request(daemon, "POST", "/api/auto-off",
+                                             json_body={"code": code})
+                print(f"✓ Auto-off → code {data.get('code')} ({data.get('label')})")
+            return 0
+        except Exception as e:
+            print(f"⚠ Daemon route failed ({e}); falling through to direct BLE")
+
     try:
         async with connected_manager(args) as m:
-            if arg is None:
+            if code is None:
                 code = await m.read_auto_off()
                 label = BLEManager.AUTO_OFF_CODES.get(code, f"unknown code {code}")
                 print(f"Auto-off: code {code} — {label}")
-                return 0
-
-            key = arg.lower().replace(" ", "").replace("_", "")
-            if key in name_to_code:
-                code = name_to_code[key]
             else:
-                try:
-                    code = int(arg)
-                except ValueError:
-                    print(f"Error: expected one of {sorted(set(name_to_code))} "
-                          f"or a code 0..4 (got {arg!r})")
-                    return 1
-                if code not in BLEManager.AUTO_OFF_CODES:
-                    print(f"Error: code must be 0..4 (got {code})")
-                    return 1
-
-            await m.set_auto_off(code)
-            label = BLEManager.AUTO_OFF_CODES[code]
-            print(f"✓ Auto-off → code {code} ({label})")
+                await m.set_auto_off(code)
+                label = BLEManager.AUTO_OFF_CODES[code]
+                print(f"✓ Auto-off → code {code} ({label})")
         return 0
     except Exception as e:
         print(f"Error: {e}")
@@ -1175,6 +1249,30 @@ async def cmd_info(args):
     Reads the standard BLE Device Information service (0x180A) plus
     our protocol-level reads (firmware version, auto-off code, etc).
     """
+    daemon = await _find_daemon(args)
+    if daemon:
+        target = daemon.get("alias") or daemon.get("address")
+        print(f"Routing via daemon at port {daemon.get('port')} → {target}\n")
+        try:
+            data = await _daemon_request(daemon, "GET", "/api/info")
+            print("=== BLE address ===")
+            print(f"  address: {data.get('address')}")
+            print("\n=== Device Information service (0x180A) ===")
+            dis = data.get("device_information_service") or {}
+            if dis:
+                for k, v in dis.items():
+                    print(f"  {k}: {v}")
+            else:
+                print("  (no DIS characteristics populated)")
+            print("\n=== SGUAI protocol reads ===")
+            print(f"  firmware (0x09):      {data.get('firmware')}")
+            print(f"  auto-off (0x27):      code {data.get('auto_off_code')} ({data.get('auto_off_label')})")
+            print(f"  battery (0x02):       {data.get('battery')}%")
+            print(f"  temperature (0x01):   {data.get('temperature_c')} °C")
+            return 0
+        except Exception as e:
+            print(f"⚠ Daemon route failed ({e}); falling through to direct BLE\n")
+
     try:
         async with connected_manager(args) as m:
             print("\n=== BLE address ===")
@@ -1322,6 +1420,28 @@ async def cmd_animate(args):
         print(f"Error: speed must be 1..255, got {speed}")
         return 1
 
+    keep_alive = "--no-keep-alive" not in args
+
+    # Daemon route — no fresh BLE connection needed.
+    daemon = await _find_daemon(args)
+    if daemon:
+        target = daemon.get("alias") or daemon.get("address")
+        print(f"Routing via daemon at port {daemon.get('port')} → {target}")
+        try:
+            abs_path = str(Path(path).resolve())
+            data = await _daemon_request(daemon, "POST", "/api/animate", json_body={
+                "path": abs_path,
+                "speed": speed,
+                "keep_alive": keep_alive,
+                "threshold": threshold,
+                "invert": invert,
+                "dither": dither,
+            })
+            print(f"✓ Animation uploaded via daemon — {data.get('frames')} frame(s) at speed={data.get('speed')}")
+            return 0
+        except Exception as e:
+            print(f"⚠ Daemon route failed ({e}); falling through to direct BLE")
+
     print(f"Loading frames from {path}...")
     frames = load_animation_frames(path, threshold, invert, dither)
     print(f"✓ {len(frames)} frame(s) loaded")
@@ -1331,22 +1451,13 @@ async def cmd_animate(args):
     if len(frames) > 3:
         print(f"... ({len(frames) - 3} more)")
 
-    keep_alive = "--no-keep-alive" not in args
-
     try:
         async with connected_manager(args) as m:
             if keep_alive:
-                # Disable the cup's auto-screen-off so the animation
-                # plays continuously after we disconnect. Side effect
-                # documented in PROTOCOL_SPEC.md §4.7: the cup may
-                # stop advertising while always-on; the direct-address
-                # connect path in find_device handles that on next run.
                 try:
                     await m.set_auto_off(0)
                     print("✓ Auto-off disabled (display will stay alive)")
                 except Exception as e:
-                    # Don't fail the whole upload if the keep-alive
-                    # write didn't go through — the animation matters more.
                     print(f"⚠ Could not disable auto-off ({e}); proceeding anyway")
             print(f"\nUploading {len(frames)} frame(s) at speed={speed}...")
             await m.set_animation(frames, speed=speed)
@@ -1807,7 +1918,11 @@ Global flags:
   --rescan       Force a fresh BLE scan (ignore cached device)
   --addr UUID    Connect to a specific cup by address (skips scan).
                  Required when ≥ 2 SGUAI-C3 devices are paired —
-                 the scanner refuses to silently auto-pick.
+                 the scanner refuses to silently auto-pick. Also
+                 selects a daemon by address when one is running.
+  --no-daemon    Bypass any running daemon; open a direct BLE
+                 connection. Useful for debugging or when you want
+                 to bypass a stale daemon.
   --host HOST    HTTP API host (REPL only, default 0.0.0.0)
   --port PORT    HTTP API port (REPL only, default 8080)
 
