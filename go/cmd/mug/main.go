@@ -203,7 +203,9 @@ func cmdAutoOff(ctx context.Context, c *sguai.Client, args []string) error {
 
 // cmdSpeed gets/sets the persistent dynamic-speed feature byte (0x24).
 // Distinct from `animate -s`, which sets the per-animation speed byte
-// in the 0x26 prologue.
+// in the 0x26 prologue. Argument forms accepted by parseSpeedArg:
+// presets (slow/medium/fast/...), raw byte (130), duration per frame
+// (1300ms / 1.3s), or frame rate (2fps).
 func cmdSpeed(ctx context.Context, c *sguai.Client, args []string) error {
 	pos := positional(args)
 	if len(pos) == 0 {
@@ -211,8 +213,6 @@ func cmdSpeed(ctx context.Context, c *sguai.Client, args []string) error {
 		if err != nil {
 			return err
 		}
-		// APK's preview formula: ms_per_frame = 10 * (260 - speed).
-		// See PROTOCOL_SPEC.md §4.6.
 		var ms int
 		if speed >= 1 {
 			ms = 10 * (260 - int(speed))
@@ -220,16 +220,109 @@ func cmdSpeed(ctx context.Context, c *sguai.Client, args []string) error {
 		fmt.Printf("Dynamic speed: %d (~%d ms/frame per APK formula)\n", speed, ms)
 		return nil
 	}
-	n, err := strconv.Atoi(pos[0])
-	if err != nil || n < 1 || n > 255 {
-		return fmt.Errorf("speed must be an integer 1..255 (got %q)", pos[0])
+	n, err := parseSpeedArg(pos[0])
+	if err != nil {
+		return err
 	}
 	if err := c.SetDynamicSpeed(ctx, byte(n)); err != nil {
 		return err
 	}
-	ms := 10 * (260 - n)
+	ms := 10 * (260 - int(n))
 	fmt.Printf("✓ Dynamic speed → %d (~%d ms/frame)\n", n, ms)
 	return nil
+}
+
+// parseSpeedArg accepts user-friendly speed values:
+//   - preset names: slowest, slow, medium (=normal/default), fast, fastest
+//   - raw byte: 1..255
+//   - duration per frame: "1300ms" / "1.3s"
+//   - frame rate: "2fps"
+//
+// Duration ↔ byte uses the APK formula ms_per_frame = 10 * (260 - speed).
+func parseSpeedArg(s string) (byte, error) {
+	raw := strings.TrimSpace(strings.ToLower(s))
+	if raw == "" {
+		return 0, fmt.Errorf("speed value cannot be empty")
+	}
+
+	// Preset boundaries match the official APK's slider (min=5, max=255,
+	// default=130). See PROTOCOL_SPEC.md §4.6.
+	presets := map[string]byte{
+		"slowest": 5, "slow": 50,
+		"medium": 130, "normal": 130, "default": 130,
+		"fast": 200, "fastest": 255,
+	}
+	if v, ok := presets[raw]; ok {
+		return v, nil
+	}
+
+	// Frames per second: <N>fps
+	if rest := strings.TrimSuffix(raw, "fps"); rest != raw {
+		fps, err := strconv.ParseFloat(strings.TrimSpace(rest), 64)
+		if err != nil || fps <= 0 {
+			return 0, fmt.Errorf("invalid fps %q", s)
+		}
+		ms := 1000.0 / fps
+		speed := int(260 - ms/10 + 0.5)
+		if speed < 1 || speed > 255 {
+			return 0, fmt.Errorf("%g fps maps to speed %d (range 1..255)", fps, speed)
+		}
+		return byte(speed), nil
+	}
+
+	// Duration per frame: <N>ms or <N>s
+	if rest := strings.TrimSuffix(raw, "ms"); rest != raw {
+		n, err := strconv.ParseFloat(strings.TrimSpace(rest), 64)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("invalid ms duration %q", s)
+		}
+		speed := int(260 - n/10 + 0.5)
+		if speed < 1 || speed > 255 {
+			return 0, fmt.Errorf("%g ms maps to speed %d (range 1..255; valid 50..2590ms)", n, speed)
+		}
+		return byte(speed), nil
+	}
+	if rest := strings.TrimSuffix(raw, "s"); rest != raw && rest != "" {
+		n, err := strconv.ParseFloat(strings.TrimSpace(rest), 64)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("invalid s duration %q", s)
+		}
+		ms := n * 1000
+		speed := int(260 - ms/10 + 0.5)
+		if speed < 1 || speed > 255 {
+			return 0, fmt.Errorf("%g s maps to speed %d (range 1..255)", n, speed)
+		}
+		return byte(speed), nil
+	}
+
+	// Raw byte
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("speed %q: expected raw 1..255, preset (slowest|slow|medium|fast|fastest), <N>ms, <N>s, or <N>fps", s)
+	}
+	if n < 1 || n > 255 {
+		return 0, fmt.Errorf("speed %d out of range 1..255 (0 is unspecified by firmware)", n)
+	}
+	return byte(n), nil
+}
+
+// parseModeArg maps any user-typed mode synonym to the canonical name
+// expected by sguai.BuildSetMode.
+func parseModeArg(s string) (string, error) {
+	key := strings.ToLower(s)
+	for _, ch := range []string{" ", "-", "_"} {
+		key = strings.ReplaceAll(key, ch, "")
+	}
+	aliases := map[string]string{
+		"static": "static", "fixed": "static", "still": "static", "off": "static", "none": "static", "0": "static",
+		"left": "scrollLeft", "scrollleft": "scrollLeft", "shiftleft": "scrollLeft", "scrolltoleft": "scrollLeft", "1": "scrollLeft",
+		"right": "scrollRight", "scrollright": "scrollRight", "shiftright": "scrollRight", "scrolltoright": "scrollRight", "2": "scrollRight",
+		"flash": "flashing", "flashing": "flashing", "blink": "flashing", "blinking": "flashing", "twinkle": "flashing", "3": "flashing",
+	}
+	if v, ok := aliases[key]; ok {
+		return v, nil
+	}
+	return "", fmt.Errorf("unknown mode %q. Try: static | left | right | flash", s)
 }
 
 func parseAutoOffArg(s string) (byte, error) {
@@ -262,7 +355,11 @@ func cmdGreeting(ctx context.Context, c *sguai.Client, args []string) error {
 	if err := c.SetGreeting(ctx, msg); err != nil {
 		return err
 	}
-	if mode := flagValue(args, "--mode"); mode != "" {
+	if raw := flagValue(args, "--mode"); raw != "" {
+		mode, err := parseModeArg(raw)
+		if err != nil {
+			return err
+		}
 		if err := c.SetDynamicMode(ctx, mode); err != nil {
 			return err
 		}
@@ -274,12 +371,16 @@ func cmdGreeting(ctx context.Context, c *sguai.Client, args []string) error {
 func cmdMode(ctx context.Context, c *sguai.Client, args []string) error {
 	pos := positional(args)
 	if len(pos) == 0 {
-		return errors.New("usage: mode <static|scrollRight|scrollLeft|flashing>")
+		return errors.New("usage: mode <static|left|right|flash> (or any synonym)")
 	}
-	if err := c.SetDynamicMode(ctx, pos[0]); err != nil {
+	mode, err := parseModeArg(pos[0])
+	if err != nil {
 		return err
 	}
-	fmt.Println("✓ Mode set")
+	if err := c.SetDynamicMode(ctx, mode); err != nil {
+		return err
+	}
+	fmt.Printf("✓ Mode set: %s\n", mode)
 	return nil
 }
 
@@ -298,14 +399,13 @@ func cmdAnimate(ctx context.Context, c *sguai.Client, args []string) error {
 	}
 	path := pos[0]
 	speed := 130 // matches Python and the APK's default (`speedValue`)
-	if s := flagValue(args, "-s"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			speed = n
-		}
-	}
-	if s := flagValue(args, "--speed"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil {
-			speed = n
+	for _, flag := range []string{"-s", "--speed"} {
+		if s := flagValue(args, flag); s != "" {
+			n, err := parseSpeedArg(s)
+			if err != nil {
+				return fmt.Errorf("%s: %w", flag, err)
+			}
+			speed = int(n)
 		}
 	}
 	threshold := uint8(128)
@@ -318,19 +418,10 @@ func cmdAnimate(ctx context.Context, c *sguai.Client, args []string) error {
 	}
 	fmt.Printf("✓ %d frame(s) loaded\n", len(frames))
 
-	// Match Python's default behavior on origin/main: keep-alive is ON
-	// by default, opt out via --no-keep-alive. Setting auto-off=0 makes
-	// the cup display stay lit so the animation plays continuously after
-	// disconnect — but it also triggers the §4.7 silent-BLE side effect
-	// (cup may not appear in next scan until animation playback ends).
-	keepAlive := !hasFlag(args, "--no-keep-alive")
-	if keepAlive {
-		if err := c.SetAutoOff(ctx, 0); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠ Could not disable auto-off (%v); proceeding anyway\n", err)
-		} else {
-			fmt.Println("✓ Auto-off disabled (display will stay alive — see PROTOCOL_SPEC.md §4.7)")
-		}
-	}
+	// Match the official APK: do NOT touch auto-off before sending an
+	// animation. The cup retains its existing screen-off preference.
+	// To keep the display lit, run `mug auto-off always` separately —
+	// the same way the APK exposes it.
 
 	fmt.Printf("\nUploading %d frame(s) at speed=%d...\n", len(frames), speed)
 	if err := c.SetAnimation(ctx, frames, speed); err != nil {
@@ -495,18 +586,27 @@ Commands:
   read [field ...] [--addr X] [--rescan]     Read version|temperature|battery|all
   auto-off [<preset>] [--addr X] [--rescan]  Get/set screen-off duration
                                              presets: always | 30s | 1m | 3m | 5m
-  speed [<1..255>] [--addr X]                Get/set persistent dynamic-speed
-                                             (feature 0x24). Default 130.
+  speed [<value>] [--addr X]                 Get/set persistent dynamic-speed
+                                             (feature 0x24). Default 130; APK
+                                             slider min=5, max=255.
+                                             Forms: slowest|slow|medium|fast|fastest,
+                                             1..255, <N>ms, <N>s, <N>fps.
                                              ms_per_frame = 10 * (260 - speed)
   greeting <msg> [--mode M] [--addr X]       Set greeting text (mode optional)
-  mode <mode> [--addr X]                     static|scrollRight|scrollLeft|flashing
+  mode <mode> [--addr X]                     static|left|right|flash (synonyms:
+                                             scrollLeft/scrollRight/flashing/blink/
+                                             twinkle/fixed/still, raw 0..3)
   image <file> [--addr X]                    STUB — not yet implemented in Go.
                                              Use python/smart_mug.py image, or
                                              pass a 1-frame GIF to "animate".
-  animate <gif> [-s SPEED] [--addr X]        Upload animation (max 132 frames).
-                  [--no-keep-alive] [-i]     Sets auto-off=0 by default (continuous
-                                             playback); pass --no-keep-alive to
-                                             preserve the cup's existing setting.
+  animate <gif> [-s SPEED] [-i]              Upload animation (max 132 frames).
+                  [--addr X]                 SPEED: same forms as "speed"
+                                             (e.g. medium, 1300ms, 2fps).
+                                             Cup's existing auto-off is left
+                                             untouched (matches the official
+                                             app). Run "mug auto-off always"
+                                             beforehand if you want the loop
+                                             to play indefinitely.
   reset [-y] [--addr X]                      Factory reset (DESTRUCTIVE)
   alias                                      List per-cup aliases
   alias <name> <UUID>                        Register an alias

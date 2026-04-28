@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smart_mug import (  # noqa: E402
     BLEManager,
     pack_bitmap,
+    parse_mode_arg,
+    parse_speed_arg,
     IMAGE_WIDTH,
     IMAGE_HEIGHT,
 )
@@ -208,6 +210,110 @@ def test_frame_count_validation_rejects_above_132():
     silent-BLE state (PROTOCOL_SPEC.md §4.6)."""
     text = (Path(__file__).resolve().parent / "smart_mug.py").read_text()
     assert "CUP_MAX_FRAMES = 132" in text
+
+
+# -----------------------------------------------------------------------------
+# parse_mode_arg — accept liberal mode-name input.
+# -----------------------------------------------------------------------------
+
+def test_parse_mode_canonical_passthrough():
+    assert parse_mode_arg("static") == "static"
+    assert parse_mode_arg("scrollLeft") == "scrollLeft"
+    assert parse_mode_arg("scrollRight") == "scrollRight"
+    assert parse_mode_arg("flashing") == "flashing"
+
+
+def test_parse_mode_friendly_synonyms():
+    assert parse_mode_arg("left") == "scrollLeft"
+    assert parse_mode_arg("right") == "scrollRight"
+    assert parse_mode_arg("blink") == "flashing"
+    assert parse_mode_arg("flash") == "flashing"
+    assert parse_mode_arg("twinkle") == "flashing"
+    assert parse_mode_arg("fixed") == "static"
+    assert parse_mode_arg("still") == "static"
+
+
+def test_parse_mode_punctuation_and_case():
+    assert parse_mode_arg("Scroll-Left") == "scrollLeft"
+    assert parse_mode_arg("SCROLL_LEFT") == "scrollLeft"
+    assert parse_mode_arg("scroll left") == "scrollLeft"
+    assert parse_mode_arg("Shift Right") == "scrollRight"
+
+
+def test_parse_mode_raw_byte_values():
+    assert parse_mode_arg("0") == "static"
+    assert parse_mode_arg("1") == "scrollLeft"
+    assert parse_mode_arg("2") == "scrollRight"
+    assert parse_mode_arg("3") == "flashing"
+
+
+def test_parse_mode_rejects_garbage():
+    import pytest
+    for bad in ["upside-down", "diagonal", "5", "", "fast"]:
+        try:
+            parse_mode_arg(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
+
+
+# -----------------------------------------------------------------------------
+# parse_speed_arg — accept presets, ms/s/fps, or raw byte.
+# -----------------------------------------------------------------------------
+
+def test_parse_speed_presets():
+    assert parse_speed_arg("slowest") == 5  # matches APK slider min=5
+    assert parse_speed_arg("slow") == 50
+    assert parse_speed_arg("medium") == 130
+    assert parse_speed_arg("normal") == 130
+    assert parse_speed_arg("default") == 130
+    assert parse_speed_arg("fast") == 200
+    assert parse_speed_arg("fastest") == 255
+
+
+def test_parse_speed_raw_byte():
+    assert parse_speed_arg("1") == 1
+    assert parse_speed_arg("130") == 130
+    assert parse_speed_arg("255") == 255
+
+
+def test_parse_speed_milliseconds():
+    # ms_per_frame = 10 * (260 - speed)  →  speed = 260 - ms/10
+    # 1300ms → 260 - 130 = 130
+    assert parse_speed_arg("1300ms") == 130
+    # 600ms → 260 - 60 = 200
+    assert parse_speed_arg("600ms") == 200
+    # 50ms → 260 - 5 = 255
+    assert parse_speed_arg("50ms") == 255
+
+
+def test_parse_speed_seconds():
+    assert parse_speed_arg("1.3s") == 130    # 1300ms equivalent
+    assert parse_speed_arg("0.6s") == 200    # 600ms equivalent
+    assert parse_speed_arg("2.5s") == 10     # 260 - 250 = 10
+
+
+def test_parse_speed_fps():
+    # 1000/2fps = 500ms/frame → speed = 260 - 50 = 210
+    assert parse_speed_arg("2fps") == 210
+    # 1000/10fps = 100ms/frame → speed = 260 - 10 = 250
+    assert parse_speed_arg("10fps") == 250
+
+
+def test_parse_speed_case_insensitive():
+    assert parse_speed_arg("MEDIUM") == 130
+    assert parse_speed_arg("Slow") == 50
+    assert parse_speed_arg("1300MS") == 130
+
+
+def test_parse_speed_rejects_garbage():
+    import pytest
+    for bad in ["", "fastfast", "very fast", "0", "-1", "256", "0fps", "9999ms"]:
+        try:
+            parse_speed_arg(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {bad!r}")
 
 
 # -----------------------------------------------------------------------------

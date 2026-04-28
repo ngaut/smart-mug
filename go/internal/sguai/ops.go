@@ -193,6 +193,11 @@ func (c *Client) SetAnimation(ctx context.Context, frames [][][]bool, speed int)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Prologue goes through the same 20 ms-throttled path as every
+	// other GET_BLE_WRITE in the APK (app-service.pretty.js:49854).
+	// Per-frame writes that follow bypass the throttle (writeLocked
+	// directly), matching the APK's `s.$cm.writeValue(...)` path.
+	time.Sleep(writeThrottle)
 	if err := c.writeLocked(BuildAnimationPrologue(byte(len(frames)), byte(speed))); err != nil {
 		return fmt.Errorf("prologue write failed: %w", err)
 	}
@@ -229,7 +234,12 @@ func (c *Client) writeFrameWithRetry(cmd []byte) error {
 		} else {
 			lastErr = err
 		}
-		time.Sleep(animRetryBackoff)
+		// APK only schedules a retry when failNum < 10 (sub-service
+		// .pretty.js:3534); after the final failure we abort without
+		// the 100 ms backoff.
+		if attempt < animMaxRetries-1 {
+			time.Sleep(animRetryBackoff)
+		}
 	}
 	return lastErr
 }

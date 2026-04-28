@@ -251,7 +251,9 @@ class BLEManager:
         """
         addr = device if isinstance(device, str) else device.address
         print(f"Connecting to {addr}...")
-        self.client = BleakClient(device)
+        # 8s timeout matches the APK (app-service.pretty.js:49449 —
+        # `createBLEConnection({timeout: 8e3})`).
+        self.client = BleakClient(device, timeout=8.0)
         await self.client.connect()
 
         # Step 2: post-connect stabilization (official: 2000 ms)
@@ -802,7 +804,13 @@ class APIServer:
         if 'message' not in data:
             return web.json_response({'error': 'message field required'}, status=400)
         message = data['message']
-        mode = data.get('mode')
+        raw_mode = data.get('mode')
+        mode = None
+        if raw_mode:
+            try:
+                mode = parse_mode_arg(raw_mode)
+            except ValueError as e:
+                return web.json_response({'error': str(e)}, status=400)
         await self.manager.set_greeting_message(message)
         if mode:
             await self.manager.set_dynamic_mode(mode)
@@ -812,9 +820,13 @@ class APIServer:
     async def handle_mode(self, request):
         """POST /api/mode — static | scrollRight | scrollLeft | flashing."""
         data = await request.json()
-        mode = data.get('mode')
-        if not mode:
+        raw_mode = data.get('mode')
+        if not raw_mode:
             return web.json_response({'error': 'mode required'}, status=400)
+        try:
+            mode = parse_mode_arg(raw_mode)
+        except ValueError as e:
+            return web.json_response({'error': str(e)}, status=400)
         await self.manager.set_dynamic_mode(mode)
         return web.json_response({'status': 'success', 'mode': mode})
 
@@ -847,15 +859,21 @@ class APIServer:
     async def handle_animate(self, request):
         """POST /api/animate — upload an animation.
 
-        Body: ``{"path": "/path/to.gif", "speed": 130, "keep_alive": false,
+        Body: ``{"path": "/path/to.gif", "speed": 130,
                  "threshold": 128, "invert": false, "dither": false}``
 
-        Either ``path`` (server-side file path) or ``frames_b64`` (a list of
-        base64-encoded GIF bytes) is required. Cup-side max 132 frames.
+        ``path`` (server-side file path) is required. Cup-side max 132
+        frames. Auto-off is left untouched (matches the official APK);
+        POST ``/api/auto-off`` separately to keep the display lit.
         """
         data = await request.json()
-        speed = int(data.get('speed', 130))
-        keep_alive = bool(data.get('keep_alive', False))
+        raw_speed = data.get('speed', 130)
+        try:
+            speed = parse_speed_arg(str(raw_speed)) if not isinstance(raw_speed, bool) else None
+            if speed is None:
+                raise ValueError("speed must not be a boolean")
+        except ValueError as e:
+            return web.json_response({'error': str(e)}, status=400)
 
         path = data.get('path')
         if path:
@@ -871,17 +889,11 @@ class APIServer:
                 status=400,
             )
 
-        if keep_alive:
-            try:
-                await self.manager.set_auto_off(0)
-            except Exception:
-                pass
         await self.manager.set_animation(frames, speed=speed)
         return web.json_response({
             'status': 'success',
             'frames': len(frames),
             'speed': speed,
-            'keep_alive': keep_alive,
         })
 
     @_json_endpoint
@@ -1117,10 +1129,120 @@ async def connected_manager(args):
 # Flags that don't belong to any cmd-specific parser but appear in CLI args.
 # Listed here so _parse_image_opts knows to consume them silently rather than
 # warning, and `_first_positional` knows how many args to skip past.
-_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--no-keep-alive", "--addr", "--no-daemon", "--yes", "-y"}
+_KNOWN_GLOBAL_FLAGS = {"--rescan", "--host", "--port", "--mode", "--addr", "--no-daemon", "--yes", "-y"}
 _GLOBAL_FLAGS_WITH_VALUE = {"--mode", "--host", "--port", "--addr"}
 
 VALID_MODES = ("static", "scrollRight", "scrollLeft", "flashing")
+
+
+# Liberal mode-name aliases — match what users actually type.
+_MODE_ALIASES = {
+    # static / fixed
+    "static": "static", "fixed": "static", "still": "static", "off": "static",
+    "none": "static", "0": "static",
+    # left
+    "left": "scrollLeft", "scrollleft": "scrollLeft", "shiftleft": "scrollLeft",
+    "scrolltoleft": "scrollLeft", "1": "scrollLeft",
+    # right
+    "right": "scrollRight", "scrollright": "scrollRight", "shiftright": "scrollRight",
+    "scrolltoright": "scrollRight", "2": "scrollRight",
+    # flashing
+    "flash": "flashing", "flashing": "flashing", "blink": "flashing",
+    "blinking": "flashing", "twinkle": "flashing", "3": "flashing",
+}
+
+
+def parse_mode_arg(s):
+    """Map a user-typed mode name to the canonical form expected by
+    set_dynamic_mode. Forgiving: case-insensitive, ignores spaces /
+    dashes / underscores; accepts intuitive synonyms (left, blink,
+    static, etc.) and the raw 0..3 byte values.
+
+    Raises ValueError on unknown input.
+    """
+    if not isinstance(s, str):
+        raise ValueError(f"expected mode name, got {type(s).__name__}")
+    key = s.lower().replace(" ", "").replace("-", "").replace("_", "")
+    if key in _MODE_ALIASES:
+        return _MODE_ALIASES[key]
+    accepted = sorted(set(_MODE_ALIASES))
+    raise ValueError(
+        f"unknown mode {s!r}. Try one of: static / scrollLeft / scrollRight / flashing "
+        f"(or any of: {', '.join(accepted[:8])}, ...)"
+    )
+
+
+def parse_speed_arg(s):
+    """Parse a user-friendly speed value into a 1..255 byte.
+
+    Forms accepted:
+      • Preset names: ``slowest`` | ``slow`` | ``medium`` (alias
+        ``normal``/``default``) | ``fast`` | ``fastest``
+      • Raw byte: ``130`` | ``200`` | ...
+      • Duration per frame: ``1300ms`` | ``1.3s`` | ``500ms``
+      • Frame rate: ``2fps`` | ``5fps``
+
+    Duration ↔ byte uses the APK's preview formula
+    (``ms_per_frame = 10 * (260 - speed)``). See PROTOCOL_SPEC.md §4.6.
+    Raises ValueError on unparseable / out-of-range input.
+    """
+    import re
+    if not isinstance(s, str):
+        raise ValueError(f"expected speed value, got {type(s).__name__}")
+    raw = s.strip().lower()
+    if not raw:
+        raise ValueError("speed value cannot be empty")
+
+    # Preset boundaries match the official APK's slider (min=5, max=255,
+    # default=130). See PROTOCOL_SPEC.md §4.6.
+    presets = {
+        "slowest": 5, "slow": 50,
+        "medium": 130, "normal": 130, "default": 130,
+        "fast": 200, "fastest": 255,
+    }
+    if raw in presets:
+        return presets[raw]
+
+    # Frames-per-second form
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*fps", raw)
+    if m:
+        fps = float(m.group(1))
+        if fps <= 0:
+            raise ValueError(f"fps must be positive (got {fps})")
+        ms = 1000.0 / fps
+        speed = round(260 - ms / 10)
+        if not 1 <= speed <= 255:
+            raise ValueError(
+                f"{fps}fps maps to speed {speed} (range 1..255). "
+                f"Try a value between {1000/(10*259):.1f} fps and {1000/(10*5):.1f} fps."
+            )
+        return speed
+
+    # Duration-per-frame form (s or ms)
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(ms|s)", raw)
+    if m:
+        n, unit = float(m.group(1)), m.group(2)
+        ms = n * 1000 if unit == "s" else n
+        # speed = 260 - ms/10
+        speed = round(260 - ms / 10)
+        if not 1 <= speed <= 255:
+            raise ValueError(
+                f"{s} maps to speed {speed} (range 1..255). "
+                f"Valid range: 50ms..2590ms per frame."
+            )
+        return speed
+
+    # Raw integer byte
+    try:
+        n = int(raw)
+    except ValueError:
+        raise ValueError(
+            f"speed {s!r}: expected raw 1..255, a preset name "
+            f"(slowest/slow/medium/fast/fastest), '<N>ms', '<N>s', or '<N>fps'"
+        )
+    if not 1 <= n <= 255:
+        raise ValueError(f"speed {n} out of range 1..255 (0 is unspecified by firmware)")
+    return n
 
 
 def _flag(args, name, default, cast=str):
@@ -1182,9 +1304,17 @@ def _parse_image_opts(args):
         elif a in ("-d", "--dither"):
             dither = True; i += 1
         elif a in ("-s", "--speed"):
-            v, i = _parse_int_arg(args, i, a)
-            if v is not None:
-                speed = v
+            # User-friendly: accepts presets, ms/s/fps, or raw byte.
+            # See parse_speed_arg.
+            if i + 1 >= len(args):
+                _warn(f"{a} requires a value")
+                i += 1
+                continue
+            try:
+                speed = parse_speed_arg(args[i + 1])
+            except ValueError as e:
+                _warn(f"{a}: {e}")
+            i += 2
         elif a == "--test":
             test_pattern = "checkerboard"; i += 1
         elif a == "--border":
@@ -1203,10 +1333,14 @@ async def cmd_greeting(args):
     if message is None:
         print("Error: message required (use \"\" to clear)")
         return 1
-    mode = _flag(args, "--mode", None)
-    if mode is not None and mode not in VALID_MODES:
-        print(f"Error: invalid mode {mode!r}. Use: {list(VALID_MODES)}")
-        return 1
+    raw_mode = _flag(args, "--mode", None)
+    mode = None
+    if raw_mode is not None:
+        try:
+            mode = parse_mode_arg(raw_mode)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return 1
     try:
         async with connected_manager(args) as m:
             print(f"\nSending: {message!r}")
@@ -1223,17 +1357,19 @@ async def cmd_greeting(args):
 
 
 async def cmd_mode(args):
-    mode = _first_positional(args)
-    if mode is None:
-        print(f"Error: mode required ({'/'.join(VALID_MODES)})")
+    raw = _first_positional(args)
+    if raw is None:
+        print("Error: mode required (try: static | left | right | flash)")
         return 1
-    if mode not in VALID_MODES:
-        print(f"Error: invalid mode {mode!r}. Use: {list(VALID_MODES)}")
+    try:
+        mode = parse_mode_arg(raw)
+    except ValueError as e:
+        print(f"Error: {e}")
         return 1
     try:
         async with connected_manager(args) as m:
             await m.set_dynamic_mode(mode)
-            print("✓ Mode set")
+            print(f"✓ Mode set: {mode}")
         return 0
     except Exception as e:
         print(f"Error: {e}")
@@ -1460,28 +1596,29 @@ async def cmd_speed(args):
     speed byte in the 0x26 prologue. The APK's UI slider drives both at
     once but they're separate firmware variables.
 
-    Examples:
-      speed                 → read current value, show approximate
-                              ms/frame per APK formula
-      speed 130             → set to 130 (default)
-      speed 200             → faster
+    Argument forms:
+      (none)                read current value
+      slow|medium|fast      preset names (also: slowest/fastest/normal/default)
+      130 / 200             raw byte (1..255)
+      1300ms / 1.3s         duration per frame
+      2fps                  frame rate
     """
     arg = _first_positional(args)
+    if arg is not None:
+        try:
+            speed = parse_speed_arg(arg)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return 1
+    else:
+        speed = None
     try:
         async with connected_manager(args) as m:
-            if arg is None:
-                speed = await m.read_dynamic_speed()
-                ms = 10 * (260 - speed) if 1 <= speed <= 255 else "?"
-                print(f"Dynamic speed: {speed} (~{ms} ms/frame per APK formula)")
+            if speed is None:
+                got = await m.read_dynamic_speed()
+                ms = 10 * (260 - got) if 1 <= got <= 255 else "?"
+                print(f"Dynamic speed: {got} (~{ms} ms/frame per APK formula)")
                 return 0
-            try:
-                speed = int(arg)
-            except ValueError:
-                print(f"Error: speed must be an integer 1..255 (got {arg!r})")
-                return 1
-            if not 1 <= speed <= 255:
-                print(f"Error: speed must be 1..255 (got {speed})")
-                return 1
             await m.set_dynamic_speed(speed)
             ms = 10 * (260 - speed)
             print(f"✓ Dynamic speed → {speed} (~{ms} ms/frame)")
@@ -1558,7 +1695,10 @@ async def cmd_animate(args):
         print(f"Error: speed must be 1..255, got {speed}")
         return 1
 
-    keep_alive = "--no-keep-alive" not in args
+    # Match the official APK: do NOT touch auto-off before sending the
+    # animation. The cup retains its existing screen-off preference.
+    # To keep the display lit, run `auto-off always` separately — the
+    # same way the APK exposes it.
 
     # Daemon route — no fresh BLE connection needed.
     daemon = await _find_daemon(args)
@@ -1570,7 +1710,6 @@ async def cmd_animate(args):
             data = await _daemon_request(daemon, "POST", "/api/animate", json_body={
                 "path": abs_path,
                 "speed": speed,
-                "keep_alive": keep_alive,
                 "threshold": threshold,
                 "invert": invert,
                 "dither": dither,
@@ -1591,12 +1730,6 @@ async def cmd_animate(args):
 
     try:
         async with connected_manager(args) as m:
-            if keep_alive:
-                try:
-                    await m.set_auto_off(0)
-                    print("✓ Auto-off disabled (display will stay alive)")
-                except Exception as e:
-                    print(f"⚠ Could not disable auto-off ({e}); proceeding anyway")
             print(f"\nUploading {len(frames)} frame(s) at speed={speed}...")
             await m.set_animation(frames, speed=speed)
             print("✓ Animation uploaded — cup is now playing autonomously")
@@ -1657,8 +1790,12 @@ async def _repl_dispatch(manager, cmd, cmd_args):
     elif cmd == "mode":
         if not cmd_args:
             print("❌ mode required"); return
-        print(f"🔄 Setting mode: {cmd_args[0]}")
-        await manager.set_dynamic_mode(cmd_args[0])
+        try:
+            mode = parse_mode_arg(cmd_args[0])
+        except ValueError as e:
+            print(f"❌ {e}"); return
+        print(f"🔄 Setting mode: {mode}")
+        await manager.set_dynamic_mode(mode)
         print("✓ Mode set")
     elif cmd == "test":
         grid = create_test_pattern()
@@ -2012,10 +2149,12 @@ Commands:
   mode <mode> [--rescan]                      Set display mode
   image <file> [opts] [--rescan]              Upload static image
   image --test [--rescan]                     Upload test pattern
-  animate <gif> [opts] [-s SPEED] [--rescan] [--no-keep-alive]
-                                              Upload animation (cup plays it).
-                                              Auto-disables screen sleep by default
-                                              so the loop plays continuously.
+  animate <gif> [opts] [-s SPEED] [--rescan]  Upload animation (cup plays it).
+                                              Cup's existing auto-off is left
+                                              untouched (matches the official
+                                              app). Run `auto-off always`
+                                              beforehand if you want the loop
+                                              to play indefinitely.
   read [field ...] [--rescan]                 Read version / temperature / battery
   info [--rescan] [--addr UUID|alias]         Dump everything: BLE address + standard
                                               Device Information service + protocol reads
@@ -2034,8 +2173,11 @@ Commands:
                                               or all running daemons.
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
-  speed [<1..255>] [--rescan]                 Set or read persistent dynamic-speed
-                                              (feature 0x24). Default 130.
+  speed [<value>] [--rescan]                  Set or read persistent dynamic-speed
+                                              (feature 0x24). Default 130; APK
+                                              slider min=5, max=255.
+                                              Forms: slowest|slow|medium|fast|fastest,
+                                              1..255, <N>ms, <N>s, <N>fps.
                                               ms_per_frame = 10 * (260 - speed)
   reset [-y] [--rescan]                       Factory reset (DESTRUCTIVE — wipes
                                               all cup data; -y to skip prompt)
@@ -2052,10 +2194,12 @@ Examples:
   uv run smart_mug.py read                    (= all three fields)
   uv run smart_mug.py repl --host 0.0.0.0 --port 8888
 
-Modes:        static | scrollRight | scrollLeft | flashing
+Modes:        static | left | right | flash  (synonyms: scrollLeft/scrollRight/
+              flashing/blink/twinkle/fixed/still, raw 0..3; case/punct insensitive)
 Read fields:  version | temperature | battery | all (default: all)
 Image opts:   -t N (threshold 0-255), -i (invert), -d (Floyd-Steinberg dither)
-Animate opts: image opts + -s/--speed N (1-255, larger = faster, default 130)
+Animate opts: image opts + -s/--speed VALUE (same forms as `speed` command;
+              e.g. medium, 1300ms, 1.3s, 2fps, raw 1..255; default 130)
 
 Global flags:
   --rescan       Force a fresh BLE scan (ignore cached device)

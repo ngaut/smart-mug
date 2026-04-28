@@ -223,8 +223,10 @@ func (a *Adapter) Connect(ctx context.Context, addrStr string) (*Client, error) 
 	addr := bluetooth.Address{UUID: uuid}
 
 	fmt.Printf("Connecting to %s...\n", addrStr)
+	// 8s connection timeout matches the official APK
+	// (app-service.pretty.js:49449 — `createBLEConnection({timeout: 8e3})`).
 	dev, err := a.a.Connect(addr, bluetooth.ConnectionParams{
-		ConnectionTimeout: bluetooth.NewDuration(10 * time.Second),
+		ConnectionTimeout: bluetooth.NewDuration(8 * time.Second),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("connect failed: %w", err)
