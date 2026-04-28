@@ -81,6 +81,34 @@ focuses on the early acts; later beats (vertical scan, scatter+reform,
 3D rotation, glitch+heal, constellation) are kept in the source for
 future cup firmware that lifts the limit.
 
+### `tidb_nextgen_100.gif`
+
+A 100-frame trim of `tidb_nextgen.gif` for cups with a smaller frame
+buffer than fw 1.7 — empirically **fw 1.6 caps at 131 frames** (a 132-
+frame upload fails mid-stream at frame 131 and leaves the cup BLE-
+unreachable until power-cycle). Trimming to 100 sits well inside
+both buffer limits and is safe to upload regardless of firmware.
+
+Pacing-wise this variant pairs well with `-s 8fps` (≈12 s loop) or
+`-s 5fps` (≈20 s loop) on the Go CLI's user-friendly speed forms;
+both let each act of the narrative dwell long enough to register.
+
+Reproduce with:
+
+```bash
+uv run --with pillow python -c "
+from PIL import Image
+src = Image.open('examples/tidb_nextgen.gif')
+frames = []
+for i in range(min(100, src.n_frames)):
+    src.seek(i)
+    frames.append(src.copy())
+frames[0].save('examples/tidb_nextgen_100.gif',
+               save_all=True, append_images=frames[1:],
+               duration=100, loop=0)
+"
+```
+
 Design history — ten iterations:
 v1 4-tier diagram (busy) → v2 abstract slab → v3 scrolling text →
 v4 labeled diagram with counter (cluttered) → v5 decluttered diagram
