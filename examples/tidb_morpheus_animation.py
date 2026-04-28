@@ -373,6 +373,215 @@ def phase_settle(num_frames=3):
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Phase 8+ — VISTA (extends the loop with TiDB key-visual aesthetic):
+#   data-rain background + voxel cluster with floating satellite
+#   cubes + light rays radiating right + use-case icons popping in.
+# Inspired by the official PingCAP key visual: red voxel cube
+# cluster + matrix data-rain + colored rays + floating use-case
+# icons. We approximate it in 1-bit on a 48×12 panel.
+# ─────────────────────────────────────────────────────────────────────
+
+# Voxel cluster geometry: a 9×7 isometric-ish stack centered around
+# (CX, CY). Hand-pixeled so it reads as a chunky 3D mass.
+VOXEL_CX, VOXEL_CY = 18, 6
+VOXEL_TOP_FACE = [    # the lit "front-top" face of the cluster
+    (-3, -3), (-2, -3), (-1, -3), (0, -3),
+    (-4, -2), (-3, -2), (-1, -2), (0, -2), (1, -2),
+    (-4, -1), (-3, -1), (-2, -1), (-1, -1), (0, -1), (1, -1),
+    (-4,  0), (-2,  0), (-1,  0), (1,  0),
+    (-4,  1),           (-2,  1),         (1,  1),
+    (-3,  2), (-2,  2), (-1,  2), (0,  2), (1,  2),
+    (-2,  3), (-1,  3), (0,  3),
+]
+VOXEL_DEPTH_EDGES = [  # right-side depth dots to suggest 3D
+    (2, -3), (2, -2), (2, -1), (3, -1), (2, 1), (2, 2), (2, 3),
+]
+SATELLITES = [           # floating outer cubes (2×2 each)
+    (-8, -5), (5, -4), (-7, 4), (6, 3),
+]
+
+
+def draw_cluster(img, scale=1.0, jitter_seed=None):
+    """Render the voxel cluster + satellites at full presence (scale=1.0)
+    or partial (scale<1.0 → keep first scale-fraction of pixels for
+    assemble-in animation)."""
+    rng = random.Random(jitter_seed) if jitter_seed is not None else None
+    full = list(VOXEL_TOP_FACE) + list(VOXEL_DEPTH_EDGES)
+    keep = full if scale >= 1.0 else full[: int(len(full) * scale)]
+    for dx, dy in keep:
+        x, y = VOXEL_CX + dx, VOXEL_CY + dy
+        if rng and rng.random() < 0.05:
+            continue  # subtle stipple jitter
+        if 0 <= x < W and 0 <= y < H:
+            img.putpixel((x, y), 1)
+    # satellite cubes — 2×2 blocks
+    for i, (sdx, sdy) in enumerate(SATELLITES):
+        if i >= int(len(SATELLITES) * min(1.0, scale * 1.4)):
+            break
+        for ddx in (0, 1):
+            for ddy in (0, 1):
+                x, y = VOXEL_CX + sdx + ddx, VOXEL_CY + sdy + ddy
+                if 0 <= x < W and 0 <= y < H:
+                    img.putpixel((x, y), 1)
+
+
+def draw_rain(img, t, density=8, seed=99):
+    """Sparse vertical-drop data rain — 1-pixel drops scrolling down."""
+    rng = random.Random(seed)
+    drops = [(rng.randint(0, 12), rng.random() * 12, rng.uniform(0.5, 1.4))
+             for _ in range(density)]
+    drops += [(rng.randint(34, W - 1), rng.random() * 12, rng.uniform(0.5, 1.4))
+              for _ in range(density)]
+    for x, y0, speed in drops:
+        y = (y0 + t * speed) % (H + 4)
+        for k in range(2):
+            py = int(y) - k
+            if 0 <= py < H:
+                if k == 0 or rng.random() < 0.4:
+                    img.putpixel((x, py), 1)
+
+
+def phase_rain_intro(num_frames=6):
+    """Data rain fades in over an empty panel (transition from settle)."""
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        # rain density grows
+        density = int(2 + 6 * (t / max(1, num_frames - 1)))
+        draw_rain(f, t, density=density)
+        frames.append(f)
+    return frames
+
+
+def phase_cluster_assemble(num_frames=8):
+    """Voxel cluster materializes piece-by-piece while rain continues."""
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        draw_rain(f, t + 6, density=6)
+        scale = (t + 1) / num_frames
+        draw_cluster(f, scale=scale, jitter_seed=t)
+        frames.append(f)
+    return frames
+
+
+def phase_rays_burst(num_frames=7):
+    """Light rays burst from cluster center toward the right edge —
+    3 rays at different angles, lengths grow per frame then fade.
+    Cluster persists; data rain continues sparse."""
+    frames = []
+    ray_targets = [
+        (W - 1, 1),      # upper-right
+        (W - 1, H // 2), # straight right
+        (W - 1, H - 2),  # lower-right
+    ]
+    for t in range(num_frames):
+        f = blank()
+        draw_rain(f, t + 14, density=5)
+        draw_cluster(f, scale=1.0)
+        # rays — animated reach
+        reach = (t + 1) / num_frames
+        for tx, ty in ray_targets:
+            ex = int(VOXEL_CX + (tx - VOXEL_CX) * reach)
+            ey = int(VOXEL_CY + (ty - VOXEL_CY) * reach)
+            line(f, VOXEL_CX + 4, VOXEL_CY, ex, ey)
+        # sparkle stars at random positions in right zone, alt. frames
+        if t % 2 == 0:
+            for sx, sy in [(35, 2), (42, 6), (38, 9)]:
+                # 4-point sparkle: center + 4 cardinal one off
+                f.putpixel((sx, sy), 1)
+                if sx - 1 >= 0:
+                    f.putpixel((sx - 1, sy), 1)
+                if sx + 1 < W:
+                    f.putpixel((sx + 1, sy), 1)
+                if sy - 1 >= 0:
+                    f.putpixel((sx, sy - 1), 1)
+                if sy + 1 < H:
+                    f.putpixel((sx, sy + 1), 1)
+        frames.append(f)
+    return frames
+
+
+# Tiny use-case icons (3-wide × 2-tall each) — distinguishable
+# silhouettes for: database, chart, document, design.
+ICONS = [
+    # database (cylinder hint: top + bottom horizontal bar)
+    [(0, 0), (1, 0), (2, 0),
+     (0, 1), (1, 1), (2, 1)],
+    # chart (3 ascending bars)
+    [(0, 1),
+     (1, 0), (1, 1),
+     (2, 0), (2, 1)],
+    # document
+    [(0, 0), (1, 0), (2, 0),
+     (0, 1),         (2, 1)],
+    # design (corner brackets)
+    [(0, 0),                 (2, 0),
+     (0, 1),         (1, 1), (2, 1)],
+]
+ICON_POSITIONS = [(36, 1), (36, 4), (36, 7), (36, 10)]
+
+
+def phase_icons_pop(num_frames=10):
+    """Use-case icons appear one by one on the right; sparkle on
+    arrival. Cluster + rays persist. Background rain very sparse."""
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        draw_rain(f, t + 21, density=4)
+        draw_cluster(f, scale=1.0)
+        # rays at full reach, lighter touch
+        for (tx, ty) in [(W - 1, 1), (W - 1, H // 2), (W - 1, H - 2)]:
+            line(f, VOXEL_CX + 4, VOXEL_CY, tx, ty)
+        # icons appear progressively: 1 every 2 frames, then all stay
+        appeared = min(len(ICONS), 1 + t // 2)
+        for i in range(appeared):
+            ix0, iy0 = ICON_POSITIONS[i]
+            for dx, dy in ICONS[i]:
+                x, y = ix0 + dx, iy0 + dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+            # sparkle on the frame the icon first appeared
+            if t == (i * 2):
+                for sdx, sdy in [(-2, 0), (0, -1), (4, 0), (1, 2)]:
+                    sx, sy = ix0 + sdx, iy0 + sdy
+                    if 0 <= sx < W and 0 <= sy < H:
+                        f.putpixel((sx, sy), 1)
+        frames.append(f)
+    return frames
+
+
+def phase_vista_hold(num_frames=4):
+    """Final hold — full key-visual scene: cluster, satellites, rays,
+    all icons, background rain shimmering. Slight rain motion every
+    frame keeps it feeling alive."""
+    frames = []
+    for t in range(num_frames):
+        f = blank()
+        draw_rain(f, t + 31, density=6)
+        draw_cluster(f, scale=1.0)
+        for (tx, ty) in [(W - 1, 1), (W - 1, H // 2), (W - 1, H - 2)]:
+            line(f, VOXEL_CX + 4, VOXEL_CY, tx, ty)
+        for i, (ix0, iy0) in enumerate(ICON_POSITIONS):
+            for dx, dy in ICONS[i]:
+                x, y = ix0 + dx, iy0 + dy
+                if 0 <= x < W and 0 <= y < H:
+                    f.putpixel((x, y), 1)
+        # cluster pulse: every other frame add a thin halo around the
+        # cluster centroid for "alive" feel
+        if t % 2 == 0:
+            for r in (5,):
+                for dx in range(-r, r + 1):
+                    dy = r - abs(dx)
+                    for sign in (-1, 1):
+                        x, y = VOXEL_CX + dx, VOXEL_CY + sign * dy
+                        if 0 <= x < W and 0 <= y < H:
+                            f.putpixel((x, y), 1)
+        frames.append(f)
+    return frames
+
+
+# ─────────────────────────────────────────────────────────────────────
 
 def add_frame_tick(frames):
     for i, f in enumerate(frames):
@@ -391,7 +600,13 @@ def build_frames():
             + phase_shatter(10)
             + phase_spiral(12)
             + phase_snap(8)
-            + phase_settle(3))
+            + phase_settle(3)
+            # Vista extension — TiDB key-visual aesthetic:
+            + phase_rain_intro(6)
+            + phase_cluster_assemble(8)
+            + phase_rays_burst(7)
+            + phase_icons_pop(10)
+            + phase_vista_hold(4))
 
 
 def main():

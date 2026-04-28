@@ -121,10 +121,9 @@ surprise on a coffee table, not a slide.
 
 ### `tidb_morpheus_animation.py` → `tidb_morpheus.gif`
 
-**TiDB Morpheus** — continuous metamorphosis of the brand identity.
-71 frames at `-s 8fps` (~9 s/loop). Seven effects, each flowing
-straight into the next so the brand is never static and never the
-same effect twice:
+**TiDB Morpheus** — continuous metamorphosis of the brand identity,
+extended with a key-visual vista at the end. 106 frames at `-s 8fps`
+(~13 s/loop). Twelve effects, each flowing straight into the next:
 
 ```
    1  GLITCH BOOT     scan-line corruption tears across the brand,
@@ -144,8 +143,28 @@ same effect twice:
                       center; rings contract over time
    6  BRAND SNAP      rings collapse into the letter pixels;
                       4-ring halo bursts outward (radii 8 → 21)
-   7  SETTLE          clean brand + 8-node cluster, ready to loop
+   7  BRAND HOLD      clean brand + 8-node cluster (transitional)
+   8  RAIN INTRO      Matrix-style binary data-rain begins falling
+                      from the top edges, gradually densifying
+   9  CLUSTER BUILD   a 9×7 voxel cluster materializes in the
+                      left-center, with 4 floating satellite cubes
+                      orbiting at the corners; rain continues
+  10  RAYS BURST      bright lines fan out from the cluster toward
+                      the right edge (3 rays at different angles);
+                      sparkle stars wink in the right zone
+  11  ICONS POP       4 use-case icons (database, chart, document,
+                      design) appear one by one along the right
+                      edge as targets the rays are serving
+  12  VISTA HOLD      full key-visual scene — cluster + satellites
+                      + rays + icons + shimmering rain — pulses
+                      with a faint halo before looping back
 ```
+
+The last five phases (rain → cluster → rays → icons → hold) recreate
+the official PingCAP TiDB key-visual aesthetic on the 1-bit panel:
+a voxel cluster with satellite shards, light rays radiating outward,
+floating use-case icons being served, against a Matrix data-rain
+background.
 
 The protagonist of the animation is the brand itself: typed,
 glitched, repaired, flipped, extruded, shattered, scattered,
