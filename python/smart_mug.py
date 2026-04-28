@@ -10,8 +10,10 @@ import base64
 import io
 import json
 import os
+import signal
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bleak import BleakClient, BleakScanner
@@ -772,6 +774,123 @@ class APIServer:
         await self.manager.set_image_data(grid)
         return web.json_response({'status': 'success', 'pattern': pattern})
 
+    @_json_endpoint
+    async def handle_animate(self, request):
+        """POST /api/animate — upload an animation.
+
+        Body: ``{"path": "/path/to.gif", "speed": 130, "keep_alive": false,
+                 "threshold": 128, "invert": false, "dither": false}``
+
+        Either ``path`` (server-side file path) or ``frames_b64`` (a list of
+        base64-encoded GIF bytes) is required. Cup-side max 132 frames.
+        """
+        data = await request.json()
+        speed = int(data.get('speed', 130))
+        keep_alive = bool(data.get('keep_alive', False))
+
+        path = data.get('path')
+        if path:
+            frames = load_animation_frames(
+                path,
+                threshold=int(data.get('threshold', 128)),
+                invert=bool(data.get('invert', False)),
+                dither=bool(data.get('dither', False)),
+            )
+        else:
+            return web.json_response(
+                {'error': "either 'path' (server-side file) is required"},
+                status=400,
+            )
+
+        if keep_alive:
+            try:
+                await self.manager.set_auto_off(0)
+            except Exception:
+                pass
+        await self.manager.set_animation(frames, speed=speed)
+        return web.json_response({
+            'status': 'success',
+            'frames': len(frames),
+            'speed': speed,
+            'keep_alive': keep_alive,
+        })
+
+    @_json_endpoint
+    async def handle_auto_off(self, request):
+        """GET/POST /api/auto-off
+
+        GET returns the current code + label.
+        POST body: ``{"code": <0..4>}`` or ``{"preset": "always|30s|1m|3m|5m"}``.
+        """
+        if request.method == 'GET':
+            code = await self.manager.read_auto_off()
+            return web.json_response({
+                'code': int(code),
+                'label': BLEManager.AUTO_OFF_CODES.get(int(code), 'unknown'),
+            })
+        data = await request.json()
+        if 'code' in data:
+            code = int(data['code'])
+        else:
+            preset = (data.get('preset') or '').lower().replace(' ', '').replace('_', '')
+            preset_map = {
+                'always': 0, 'on': 0, '0': 0,
+                '30s': 1, '30sec': 1, '1': 1,
+                '1m': 2, '1min': 2, '2': 2,
+                '3m': 3, '3min': 3, '3': 3,
+                '5m': 4, '5min': 4, '4': 4,
+            }
+            if preset not in preset_map:
+                return web.json_response({'error': 'code 0..4 or preset name required'}, status=400)
+            code = preset_map[preset]
+        await self.manager.set_auto_off(code)
+        return web.json_response({
+            'status': 'success',
+            'code': code,
+            'label': BLEManager.AUTO_OFF_CODES.get(code, 'unknown'),
+        })
+
+    @_json_endpoint
+    async def handle_info(self, request):
+        """GET /api/info — full cup snapshot (DIS + protocol reads)."""
+        addr = None
+        try:
+            addr = self.manager.client.address
+        except Exception:
+            pass
+        dis = await self.manager.read_device_info()
+        out = {'address': addr, 'device_information_service': dis}
+        for label, fn in [
+            ('firmware', self.manager.read_version),
+            ('battery', self.manager.read_battery),
+            ('temperature_c', self.manager.read_temperature),
+            ('auto_off_code', self.manager.read_auto_off),
+        ]:
+            try:
+                out[label] = await fn()
+            except Exception as e:
+                out[label] = f"error: {type(e).__name__}: {e}"
+        if isinstance(out.get('auto_off_code'), int):
+            out['auto_off_label'] = BLEManager.AUTO_OFF_CODES.get(
+                out['auto_off_code'], 'unknown'
+            )
+        return web.json_response(out)
+
+    @_json_endpoint
+    async def handle_reset(self, request):
+        """POST /api/reset?confirm=YES — factory-reset (DESTRUCTIVE).
+
+        Refuses unless ``?confirm=YES`` query param is present, to avoid
+        accidental wipes via mis-typed curl commands.
+        """
+        if request.query.get('confirm') != 'YES':
+            return web.json_response(
+                {'error': "factory reset requires ?confirm=YES query param"},
+                status=400,
+            )
+        await self.manager.factory_reset()
+        return web.json_response({'status': 'success'})
+
     async def handle_status(self, request):
         """GET /api/status - Get connection status"""
         is_connected = self.manager.client and self.manager.client.is_connected
@@ -819,10 +938,15 @@ curl -X POST 'http://localhost:8080/api/test?pattern=border'
         self.app = web.Application()
         self.app.router.add_get('/', self.handle_index)
         self.app.router.add_get('/api/status', self.handle_status)
+        self.app.router.add_get('/api/info', self.handle_info)
+        self.app.router.add_get('/api/auto-off', self.handle_auto_off)
+        self.app.router.add_post('/api/auto-off', self.handle_auto_off)
         self.app.router.add_post('/api/greeting', self.handle_greeting)
         self.app.router.add_post('/api/mode', self.handle_mode)
         self.app.router.add_post('/api/image', self.handle_image)
         self.app.router.add_post('/api/test', self.handle_test)
+        self.app.router.add_post('/api/animate', self.handle_animate)
+        self.app.router.add_post('/api/reset', self.handle_reset)
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         await web.TCPSite(self.runner, self.host, self.port).start()
@@ -1339,6 +1463,167 @@ async def _repl_dispatch(manager, cmd, cmd_args):
         print(f"❌ Unknown command: {cmd!r} (try 'help')")
 
 
+DAEMON_STATUS_FILE = Path.home() / ".smart_mug_daemon.json"
+
+
+def _read_daemon_status():
+    """Return the current daemon status dict, or None if no daemon is
+    recorded or the recorded PID is dead. Cleans up stale status files."""
+    if not DAEMON_STATUS_FILE.exists():
+        return None
+    try:
+        status = json.loads(DAEMON_STATUS_FILE.read_text())
+    except (OSError, ValueError):
+        return None
+    pid = status.get("pid")
+    if not isinstance(pid, int):
+        return None
+    try:
+        os.kill(pid, 0)  # signal 0 = existence check
+    except OSError:
+        # Stale status file — daemon process is gone. Remove and return None.
+        try:
+            DAEMON_STATUS_FILE.unlink()
+        except OSError:
+            pass
+        return None
+    return status
+
+
+async def cmd_daemon(args):
+    """Persistent BLE-connection daemon with HTTP API.
+
+    Holds a single GATT connection alive until the process is signaled
+    (SIGINT/SIGTERM). Exposes the cup over a local HTTP API so multiple
+    short-lived clients can drive the cup without each paying the
+    connect+disconnect cost — and without triggering the cup's
+    silent-BLE side effects we hit when reconnecting after an animation
+    upload (PROTOCOL_SPEC.md §4.6 / §4.7).
+
+    Usage:
+      smart_mug.py daemon [--addr UUID|alias] [--host 127.0.0.1] [--port 8080]
+      smart_mug.py daemon --status
+      smart_mug.py daemon --stop
+
+    Only one daemon can run at a time (single status file). Multi-cup
+    daemonization on different ports is a future extension.
+    """
+    if "--status" in args:
+        status = _read_daemon_status()
+        if not status:
+            print("No daemon running.")
+            return 0
+        addr = status.get("address", "?")
+        alias = status.get("alias")
+        target = f"{alias} ({addr})" if alias else addr
+        print(f"Daemon running:")
+        print(f"  PID:      {status.get('pid')}")
+        print(f"  HTTP:     http://{status.get('host')}:{status.get('port')}/")
+        print(f"  Cup:      {target}")
+        print(f"  Started:  {status.get('started_at')}")
+        return 0
+
+    if "--stop" in args:
+        status = _read_daemon_status()
+        if not status:
+            print("No daemon running.")
+            return 0
+        pid = status["pid"]
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"✓ Sent SIGTERM to daemon PID {pid}")
+        except OSError as e:
+            print(f"Error: could not signal PID {pid}: {e}")
+            return 1
+        return 0
+
+    existing = _read_daemon_status()
+    if existing:
+        print(f"Error: daemon is already running (PID {existing['pid']}, "
+              f"port {existing.get('port')}). Stop it with "
+              f"`smart_mug.py daemon --stop` first.")
+        return 1
+
+    host = _flag(args, "--host", "127.0.0.1")
+    port = _flag(args, "--port", 8080, int)
+
+    if not AIOHTTP_AVAILABLE:
+        print("Error: aiohttp not available. Install with: uv pip install aiohttp")
+        return 1
+
+    api_server = None
+    stop_event = asyncio.Event()
+
+    def _on_signal():
+        if not stop_event.is_set():
+            print("\n✓ Received signal, shutting down daemon...")
+            stop_event.set()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _on_signal)
+        except NotImplementedError:
+            # Windows doesn't support add_signal_handler on the proactor loop;
+            # SIGINT will still raise KeyboardInterrupt.
+            pass
+
+    try:
+        async with connected_manager(args) as manager:
+            # Identify which physical cup (alias if known) we ended up on.
+            try:
+                addr = manager.client.address
+            except Exception:
+                addr = "unknown"
+            alias = None
+            for name, entry in _load_cache().get("aliases", {}).items():
+                if entry.get("address") == addr:
+                    alias = name
+                    break
+
+            api_server = APIServer(manager, host=host, port=port)
+            if not await api_server.start():
+                return 1
+
+            status = {
+                "pid": os.getpid(),
+                "host": host,
+                "port": port,
+                "alias": alias,
+                "address": addr,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+            try:
+                DAEMON_STATUS_FILE.write_text(json.dumps(status, indent=2))
+            except OSError as e:
+                print(f"⚠ could not write status file: {e}")
+
+            target = f"{alias} ({addr})" if alias else addr
+            print(f"\n✓ Daemon ready. Persistent connection to {target}.")
+            print(f"  HTTP API: http://{host}:{port}/")
+            print(f"  Stop with: smart_mug.py daemon --stop  (or Ctrl-C)\n")
+
+            await stop_event.wait()
+        return 0
+    except KeyboardInterrupt:
+        print("\n✓ Interrupted, shutting down daemon...")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+    finally:
+        if api_server:
+            try:
+                await api_server.stop()
+            except Exception:
+                pass
+        try:
+            if DAEMON_STATUS_FILE.exists():
+                DAEMON_STATUS_FILE.unlink()
+        except OSError:
+            pass
+
+
 async def cmd_repl(args):
     """Interactive REPL with a persistent BLE connection and HTTP API."""
     host = _flag(args, "--host", "0.0.0.0")
@@ -1406,6 +1691,13 @@ Commands:
   alias [<name> <UUID> | --list | --remove <name> | --clear]
                                               Manage friendly per-cup names. Once
                                               aliased, --addr <name> resolves locally.
+  daemon [--addr UUID|alias] [--host H] [--port P]
+                                              Persistent BLE-connection daemon with
+                                              HTTP API. Holds one cup connected so
+                                              short-lived clients don't pay reconnect
+                                              cost or hit §4.7 silent-BLE windows.
+  daemon --status                             Show running daemon (if any).
+  daemon --stop                               Send SIGTERM to running daemon.
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
@@ -1463,6 +1755,8 @@ async def main():
         return await cmd_auto_off(sys.argv[2:])
     elif cmd == 'repl':
         return await cmd_repl(sys.argv[2:])
+    elif cmd == 'daemon':
+        return await cmd_daemon(sys.argv[2:])
     elif cmd == 'clear-cache':
         BLEManager.clear_cached_device()
         return 0
