@@ -119,6 +119,44 @@ teach: when "explain the architecture" doesn't fit the medium,
 *tell a story whose climax is the brand*. The cup's job is to be a
 surprise on a coffee table, not a slide.
 
+### `tidb_strike_animation.py` → `tidb_strike.gif`
+
+**TiDB Strike Force** — a 1-bit demoscene-style piece that earns the
+brand reveal at its climax. 64 frames, ~8 s/loop at `-s 8fps`. Six
+acts, all motion all the time:
+
+```
+   Act 1  BOOT          horizontal scanline sweeps top→bottom with
+                        a phosphor afterglow trail (CRT power-on)
+   Act 2  BRAND-IN      "TiDB" types in left-to-right behind a block
+                        cursor; one full-screen flicker on lock
+   Act 3  BOSS DESCENT  wide irregular "Legacy DB" boss looms from
+                        the top, pixels boiling within (Matrix
+                        data-rain), descends toward a tiny lone
+                        TiDB node at the bottom
+   Act 4  COUNTER FIRE  the lone node splits 1 → 2 → 4 → 8; each
+                        spawn flashes a halo and fires a vertical
+                        bullet trail; boss visibly shrinks
+   Act 5  HTAP BARRAGE  top OLTP bullet stream + bottom OLAP laser
+                        sweep crossfire pulverize what remains;
+                        wireframe links pulse between nodes; final
+                        hit detonates a full-screen flash
+   Act 6  REFORM        explosion particles fly outward then
+                        converge (linear-interpolated trajectories)
+                        into the pixels of "TiDB"; halo expands;
+                        cluster settles below the brand and loops
+```
+
+The "cool" comes from layered simultaneous motion: while bullets
+fly, the boss internals roil; while nodes spawn, halos pulse;
+during reform, particles still trace inward as the brand settles.
+Nothing is static.
+
+```bash
+uv run --with pillow python examples/tidb_strike_animation.py
+/tmp/mug animate examples/tidb_strike.gif -s 8fps
+```
+
 ### `tidb_arcade_animation.py` → `tidb_arcade.gif`
 
 **TiDB Arcade** — a 6-stage game-style animation that explains TiDB's
