@@ -64,17 +64,59 @@ CACHE_FILE = Path.home() / ".smart_mug_cache.json"
 
 
 def _load_cache():
+    """Load the local cache. Returns a dict with shape::
+
+        {
+          "address": "<UUID>",       # last-used address (legacy, kept for
+          "name":    "<ble-name>",   # backward compat with single-cup users)
+          "aliases": {               # NEW: user-assigned per-cup aliases
+            "<alias-name>": {
+              "address": "<UUID>",
+              "ble_name": "SGUAI-C3",
+            },
+            ...
+          }
+        }
+
+    Missing keys are tolerated; old single-cup caches still work."""
     try:
-        return json.loads(CACHE_FILE.read_text())
+        cache = json.loads(CACHE_FILE.read_text())
+        if not isinstance(cache, dict):
+            return {}
+        cache.setdefault("aliases", {})
+        return cache
     except (OSError, ValueError):
-        return {}
+        return {"aliases": {}}
+
+
+def _save_cache_full(cache):
+    try:
+        CACHE_FILE.write_text(json.dumps(cache, indent=2))
+    except OSError as e:
+        _warn(f"could not save cache: {e}")
 
 
 def _save_cache(address, name):
-    try:
-        CACHE_FILE.write_text(json.dumps({"address": address, "name": name}))
-    except OSError as e:
-        _warn(f"could not save cache: {e}")
+    """Update the legacy 'last used' fields without touching aliases."""
+    cache = _load_cache()
+    cache["address"] = address
+    cache["name"] = name
+    _save_cache_full(cache)
+
+
+def _resolve_addr_or_alias(value):
+    """Translate a user-supplied --addr value: if it matches an alias,
+    return that alias's address; otherwise return the value unchanged.
+    Lets users say `--addr kitchen` once they've registered the alias."""
+    if not value:
+        return value
+    cache = _load_cache()
+    aliases = cache.get("aliases", {})
+    entry = aliases.get(value)
+    if entry and "address" in entry:
+        print(f"Resolved alias {value!r} → {entry['address']}")
+        return entry["address"]
+    return value
 
 
 class BLEManager:
@@ -816,7 +858,7 @@ async def connected_manager(args):
     try:
         device = await manager.find_device(
             use_cache="--rescan" not in args,
-            force_addr=_flag_value(args, "--addr"),
+            force_addr=_resolve_addr_or_alias(_flag_value(args, "--addr")),
         )
         await manager.connect(device)
         yield manager
@@ -1049,6 +1091,75 @@ async def cmd_info(args):
     except Exception as e:
         print(f"Error: {e}")
         return 1
+
+
+def cmd_alias(args):
+    """Manage friendly per-cup names.
+
+    Usage:
+      alias                          List all aliases (and the "last used" cup)
+      alias <name> <UUID>            Register or update an alias
+      alias --remove <name>          Forget an alias
+      alias --clear                  Forget all aliases (cache file stays)
+
+    Once aliased, `--addr <name>` resolves to the stored UUID. The cup
+    BLE-name (always "SGUAI-C3" on this firmware) is recorded for
+    bookkeeping; only the UUID is used at connect time.
+
+    This is a local-only mapping — nothing is written to the cup. The
+    file lives at ``~/.smart_mug_cache.json``.
+    """
+    cache = _load_cache()
+    aliases = cache.setdefault("aliases", {})
+
+    if not args:
+        # List
+        if cache.get("address"):
+            print(f"Last used: {cache.get('name', 'SGUAI-C3')} ({cache['address']})")
+        if not aliases:
+            print("\nNo aliases registered. Add one with:")
+            print("  smart_mug.py alias <name> <UUID>")
+            return 0
+        print("\nAliases:")
+        for name in sorted(aliases):
+            entry = aliases[name]
+            print(f"  {name:<16}  {entry.get('address', '?')}  ({entry.get('ble_name', '?')})")
+        return 0
+
+    if "--clear" in args:
+        cache["aliases"] = {}
+        _save_cache_full(cache)
+        print("✓ All aliases cleared")
+        return 0
+
+    if "--remove" in args:
+        idx = args.index("--remove")
+        if idx + 1 >= len(args):
+            print("Error: --remove requires a name")
+            return 1
+        name = args[idx + 1]
+        if name in aliases:
+            del aliases[name]
+            _save_cache_full(cache)
+            print(f"✓ Removed alias {name!r}")
+            return 0
+        print(f"Error: no alias named {name!r}")
+        return 1
+
+    # Positional: <name> <UUID>
+    pos = [a for a in args if not a.startswith("-")]
+    if len(pos) != 2:
+        print("Error: usage: alias <name> <UUID>  (or --remove / --clear)")
+        return 1
+    name, uuid = pos
+    if name in {"-", "--", "list", "default"} or name.startswith("--"):
+        print(f"Error: reserved alias name {name!r}")
+        return 1
+    aliases[name] = {"address": uuid, "ble_name": DEVICE_NAME}
+    _save_cache_full(cache)
+    print(f"✓ Aliased {name!r} → {uuid}")
+    print(f"  Use it: smart_mug.py info --addr {name}")
+    return 0
 
 
 async def cmd_image(args):
@@ -1289,9 +1400,12 @@ Commands:
                                               Auto-disables screen sleep by default
                                               so the loop plays continuously.
   read [field ...] [--rescan]                 Read version / temperature / battery
-  info [--rescan] [--addr UUID]               Dump everything: BLE address + standard
+  info [--rescan] [--addr UUID|alias]         Dump everything: BLE address + standard
                                               Device Information service + protocol reads
                                               (useful for distinguishing two cups)
+  alias [<name> <UUID> | --list | --remove <name> | --clear]
+                                              Manage friendly per-cup names. Once
+                                              aliased, --addr <name> resolves locally.
   auto-off [<preset>] [--rescan]              Set or read screen auto-off duration
                                               presets: always | 30s | 1m | 3m | 5m
   repl [--rescan] [--host HOST] [--port PORT] Interactive REPL + HTTP API
@@ -1343,6 +1457,8 @@ async def main():
         return await cmd_read(sys.argv[2:])
     elif cmd == 'info':
         return await cmd_info(sys.argv[2:])
+    elif cmd == 'alias':
+        return cmd_alias(sys.argv[2:])
     elif cmd in ('auto-off', 'autooff', 'screen-off'):
         return await cmd_auto_off(sys.argv[2:])
     elif cmd == 'repl':
