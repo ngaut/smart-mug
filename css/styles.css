@@ -81,9 +81,8 @@
 /* Realistic Cup Preview */
 .cup-container {
   position: relative;
-  width: 100%;
-  max-width: 300px;
-  /* Adjust based on your layout needs */
+  width: 480px;
+  max-width: 100%;
   margin: 0 auto;
   aspect-ratio: 1 / 1;
   /* Exact aspect ratio of the cup image (800x800) */
@@ -92,7 +91,6 @@
   background-repeat: no-repeat;
   background-position: center;
   border-radius: 12px;
-  /* box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); */
   overflow: hidden;
 }
 

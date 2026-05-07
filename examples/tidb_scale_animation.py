@@ -22,8 +22,8 @@ count 1 → 2 → 4 → 8 → 16, see the wave sweep, and register the sting.
 
 Tuning notes
 ------------
-The pacing assumes speed=200 (cup period ≈ 32500/200 ≈ 160 ms/frame).
-At max speed=255 (~127 ms/frame) the loop runs ~25% faster — fine for
+The pacing assumes speed=200 (APK formula `10·(260−s)` → 600 ms/frame).
+At max speed=255 (50 ms/frame) the loop runs 12× faster — fine for
 "motion vibe" but the scale-out beats become too fleeting to count.
 
 Usage

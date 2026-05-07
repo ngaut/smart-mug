@@ -112,8 +112,8 @@ class BLEManager {
     this.responseCharacteristic = null;
     this.pendingResponse = null;
     this.responseTimeout = null;
-    // Serialize all writes — concurrent callers (e.g. parallel multi-cup
-    // sends) cannot interleave GATT writes on the same characteristic.
+    // Serialize all writes — concurrent callers cannot interleave GATT
+    // writes on the same characteristic.
     this._mutex = new Mutex();
   }
 

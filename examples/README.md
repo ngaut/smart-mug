@@ -23,12 +23,11 @@ uv run python/smart_mug.py animate examples/tidb_scale.gif -s 200
 uv run python/smart_mug.py animate examples/tidb_scale.gif -s 255
 ```
 
-**Speed tuning.** The cup's speed byte is monotonic (larger = faster)
-but the unit isn't strictly milliseconds — see `PROTOCOL_SPEC.md` §4.6.
-Empirically, period ≈ 32500 / speed, so `speed=200` ≈ 160 ms/frame
-(comfortable read), `speed=130` (default) ≈ 250 ms/frame (slow and
-deliberate), `speed=255` ≈ 127 ms/frame (motion-heavy but the scale
-beats fly by).
+**Speed tuning.** The cup's speed byte is monotonic (larger = faster).
+APK formula (`PROTOCOL_SPEC.md` §4.6): `ms_per_frame = 10·(260 − speed)`.
+So `speed=200` → 600 ms/frame (comfortable read), `speed=130` (default)
+→ 1300 ms/frame (slow and deliberate), `speed=255` → 50 ms/frame
+(motion-heavy but the scale beats fly by).
 
 (The pre-rendered `.gif` files are committed alongside the scripts so
 you can upload without re-rendering.)

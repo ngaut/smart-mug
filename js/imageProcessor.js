@@ -254,7 +254,14 @@ class ImageProcessor {
     if (file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')) {
       console.log('GIF detected, attempting to process frames...');
       try {
-        return await this.processGif(file, options);
+        // Pass the resolved options (with defaults applied) — processGif
+        // destructures targetWidth/targetHeight/etc. and would otherwise see
+        // undefined for any value the caller didn't supply, causing
+        // getImageData(0,0,undefined,undefined) to throw.
+        return await this.processGif(file, {
+          targetWidth, targetHeight, fitMode, gamma, algorithm, threshold,
+          brightness, contrast, sharpen, autoContrast,
+        });
       } catch (error) {
         console.warn('Failed to process GIF frames, falling back to static image:', error);
       }
@@ -386,6 +393,11 @@ class ImageProcessor {
           const ctx = canvas.getContext('2d');
           const frameImageData = ctx.createImageData(gifReader.width, gifReader.height);
 
+          // Snapshot the first decoded RGBA frame as the "original image"
+          // for the side-by-side preview in main.js.
+          let originalImage = null;
+          let firstFrameAnalysis = null;
+
           for (let i = 0; i < numFrames; i++) {
             gifReader.decodeAndBlitFrameRGBA(i, frameImageData.data);
 
@@ -396,30 +408,41 @@ class ImageProcessor {
 
             ctx.putImageData(frameImageData, 0, 0);
 
+            if (i === 0) {
+              // Clone the canvas so later iterations don't mutate the snapshot.
+              originalImage = document.createElement('canvas');
+              originalImage.width = canvas.width;
+              originalImage.height = canvas.height;
+              originalImage.getContext('2d').drawImage(canvas, 0, 0);
+            }
+
             const resizedData = this.resizeCanvasToData(canvas, targetWidth, targetHeight, fitMode);
             const grayscale = this.toGrayscale(resizedData);
+            if (i === 0) firstFrameAnalysis = this.analyzeImage(grayscale);
             const gammaCorrected = this.adjustGamma(grayscale, gamma);
             const binaryData = this.dither(gammaCorrected, targetWidth, targetHeight, algorithm || 'floyd-steinberg', threshold);
             const grid = this.toGridArray(binaryData, targetWidth, targetHeight);
 
             frames.push({
+              index: i,
               grid,
               binaryData,
+              preview: this.createPreviewCanvas(binaryData, targetWidth, targetHeight),
               delay: frameInfo.delay * 10
             });
           }
 
-          const firstFrameBinary = frames[0].binaryData;
-          const firstFrameGrid = frames[0].grid;
-          const preview = this.createPreviewCanvas(firstFrameBinary, targetWidth, targetHeight);
+          const firstFrame = frames[0];
 
           resolve({
-            grid: firstFrameGrid,
-            preview,
-            width: targetWidth,
-            height: targetHeight,
+            grid: firstFrame.grid,
+            preview: firstFrame.preview,
+            binaryData: firstFrame.binaryData,
             isTemporal: true,
-            frames
+            numFrames,
+            frames,
+            originalImage,
+            analysis: firstFrameAnalysis
           });
 
         } catch (err) {

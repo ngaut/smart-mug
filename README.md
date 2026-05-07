@@ -4,27 +4,21 @@ Web-based control application for the SGUAI-C3 Smart Cup - a Bluetooth-enabled s
 
 ## Features
 
-### Single Cup Mode
 - 🔗 **Bluetooth Connectivity** - Web Bluetooth API for device pairing
 - 🌡️ **Temperature Monitoring** - Real-time sensor reading
 - 📝 **Text Display** - Send greeting messages (UTF-8, 20 char limit)
 - 🎬 **Display Modes** - Static, scrolling (both directions), flashing
 - 🎨 **Visual Editor** - WYSIWYG pixel grid editor with draw/erase/clear/fill tools
 - 📷 **Image Upload** - Upload photos with advanced dithering algorithms
-
-### Multi-Cup Display (NEW!)
-- 🖼️ **4-Cup Grid Layout** - Combine 4 cups into a 96×24 pixel display
-- 🎞️ **Animated GIF Support** - Upload and play animated GIFs across all cups
-- 🔄 **Motion Overlay** - Combine GIF animation with scrolling effects
-- 📺 **Live Preview** - Real-time animated preview of all 4 cups
-- ⚡ **Skip Connection Mode** - Test UI without physical devices
+- 🎞️ **Animated GIF Support** - Upload and play animated GIFs with on-screen preview
+- ⚡ **Skip Connection Mode** - Test UI without a physical device
 
 ## Technology Stack
 
 - **Frontend:** Vanilla JavaScript (ES6+), HTML5, Tailwind CSS (CDN)
 - **Communication:** Web Bluetooth API
 - **Image Processing:** Canvas API, Floyd-Steinberg dithering, omggif library
-- **Display:** 48×12 pixel monochrome LED matrix (single cup) or 96×24 (4-cup grid)
+- **Display:** 48×12 pixel monochrome LED matrix
 
 ## Project Structure
 
@@ -33,11 +27,9 @@ Web-based control application for the SGUAI-C3 Smart Cup - a Bluetooth-enabled s
 ├── css/
 │   └── styles.css         # Custom styling for pixel grid
 ├── js/
-│   ├── ble.js            # Bluetooth communication layer (single cup)
-│   ├── multiCupBLE.js    # Multi-cup BLE manager
+│   ├── ble.js            # Bluetooth communication layer
 │   ├── ui.js             # UI components and panels
 │   ├── imageProcessor.js # Image processing, dithering, and GIF parsing
-│   ├── imageSplitter.js  # Multi-cup image splitting
 │   ├── imageEditor.js    # Pixel grid state management
 │   ├── omggif.js         # GIF parsing library
 │   └── main.js           # Application orchestration
@@ -100,62 +92,33 @@ python3 -m http.server 8080
 - Navigate to: http://localhost:8080
 - Enable Web Bluetooth in browser settings if needed
 
-### 3. Connect to Device(s)
-**Single Cup Mode:**
-1. Click "Connect to Device"
-2. Select "SGUAI-C3" from pairing dialog
-3. Wait for connection confirmation
-
-**Multi-Cup Mode:**
-1. Click "Multi-Cup Display" tab
-2. Click "Connect 4 Cups"
-3. Select each cup one by one (Cup 0-3)
-4. Or click "Skip Connection" to test UI without devices
+### 3. Connect
+1. Click "Connect to Device" and select "SGUAI-C3" from the pairing dialog, OR
+2. Click "Skip Connection" to enter demo mode and explore the UI without a device.
 
 ### 4. Use Features
-- **Single Cup:** Send text, images, or use the pixel editor
-- **Multi-Cup:** Upload images/GIFs, select layout, and play animations
+- Read version, temperature
+- Send greeting text or set scrolling/flashing mode
+- Upload an image or animated GIF
+- Use the pixel editor to draw frames manually
 
-## Multi-Cup Display System
+## Animated GIF Playback
 
-### Layouts
-- **Grid 2×2:** 4 cups in a 2×2 grid (96×24 pixels total)
-- **Landscape Wide:** 4 cups in a row (192×12 pixels total)
+Upload an animated GIF and the cup will play it autonomously after upload —
+no further BLE traffic is needed during playback. The on-screen preview
+mirrors the cup's playback timing using the APK's
+`ms_per_frame = 10 × (260 − speed)` formula (PROTOCOL_SPEC.md §4.6), so the
+preview is honest about what you'll see on the device.
 
-### Dynamic GIF Player
-
-Upload animated GIFs and play them across all 4 cups with optional motion effects!
-
-**Features:**
-- **Automatic GIF Detection:** System detects multi-frame GIFs automatically
-- **Frame Extraction:** Parses GIF frames using omggif library
-- **Motion Overlay:** Combine frame animation with scrolling effects
-  - Static: Frame-by-frame animation only
-  - Scroll Right: Frames + rightward scrolling
-  - Scroll Left: Frames + leftward scrolling
-  - Flashing: Frames + flashing effect
-- **Live Preview:** See exactly what's playing on each cup
-- **Playback Controls:** Play, Stop, and Sync buttons
-- **Preview Mode:** Works without physical devices (Skip Connection)
-
-**Workflow:**
-1. Upload an animated GIF (or generate one with `generate_test_gif.py`)
-2. System automatically detects frames and shows animation controls
-3. Select a motion overlay mode (optional)
-4. Click "Play GIF on Cups"
-5. The frames are uploaded once via the `0x26` command (~150 ms per frame, so a 5-frame GIF lands in under a second)
-6. Each cup then plays its frame sequence autonomously from internal storage — no further BLE traffic during playback
-7. The on-screen preview cycles independently to roughly track what the cup is showing
-
-**Technical Details:**
-- Animation upload: ~150 ms per frame (was ~3 s on the legacy streaming path)
-- Cup-side playback: autonomous after upload, no BLE traffic needed
-- Speed byte derived from the GIF's average inter-frame delay, clamped to 1–255
-- Supports GIFs with up to 132 frames on SGUAI-C3 fw 1.7 (the protocol
-  byte allows 255 but the cup's buffer caps at 132 — see
+**Technical details:**
+- Per-frame upload: ~150 ms (vs. ~3 s on the legacy streaming path)
+- Cup-side playback: fully autonomous after upload — disconnect and the
+  loop keeps running
+- Speed byte: 1–255 (default 130 ≈ 1.3 s/frame, max 255 ≈ 50 ms/frame)
+- Frame buffer cap: 132 frames on SGUAI-C3 fw 1.7 (the protocol byte
+  allows 255 but the cup will drop the link beyond 132 —
   [`PROTOCOL_SPEC.md §4.6`](PROTOCOL_SPEC.md))
-- Each frame is dithered and split across 4 cups
-- Graceful fallback when no cups connected (preview-only mode)
+- Demo mode (Skip Connection): preview-only, no BLE writes
 
 ## Image Upload Feature
 
@@ -213,9 +176,8 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 ## Known Limitations
 
 1. **No Generic Access Service:** Device doesn't expose standard Generic Access service (handled gracefully)
-2. **BLE Timeout:** Devices may auto-disconnect after inactivity (manual reconnect required)
-3. **Animation playback drift:** With 4 cups playing autonomously after upload, the cups may drift slightly relative to each other over long animations (no clock sync between them)
-4. **Production Build:** Tailwind CDN should be replaced with npm installation for production
+2. **BLE Timeout:** Device may auto-disconnect after inactivity (manual reconnect required)
+3. **Production Build:** Tailwind CDN should be replaced with npm installation for production
 
 ## Troubleshooting
 
@@ -229,28 +191,20 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 - Try sending a simpler command (e.g., read temperature)
 - Reconnect if device disconnected
 
-### Multi-Cup Issues
-- Ensure all 4 cups are connected before processing images
-- Use "Skip Connection" to test UI without devices
-- Check that cups are in correct positions (Cup 0-3)
-
 ## Development Notes
 
-### Script Load Order (Critical)
+### Script Load Order
 ```html
-<script src="js/ble.js"></script>           <!-- 1. Single-cup BLE manager -->
-<script src="js/multiCupBLE.js"></script>   <!-- 2. Multi-cup BLE manager -->
-<script src="js/imageSplitter.js"></script> <!-- 3. Image splitting -->
-<script src="js/ui.js"></script>            <!-- 4. UI components -->
-<script src="js/omggif.js"></script>        <!-- 5. GIF parsing -->
-<script src="js/imageProcessor.js"></script><!-- 6. Image processing -->
-<script src="js/imageEditor.js"></script>   <!-- 7. Grid state -->
-<script src="js/main.js"></script>          <!-- 8. Application logic -->
+<script src="js/ble.js"></script>           <!-- 1. BLE manager -->
+<script src="js/ui.js"></script>            <!-- 2. UI components -->
+<script src="js/omggif.js"></script>        <!-- 3. GIF parsing -->
+<script src="js/imageProcessor.js"></script><!-- 4. Image processing -->
+<script src="js/imageEditor.js"></script>   <!-- 5. Grid state -->
+<script src="js/main.js"></script>          <!-- 6. Application logic -->
 ```
 
 ### Global Architecture
-- **BLEManager** (`window.bleManager`) - Singleton for single-cup BLE operations
-- **MultiCupBLEManager** (`window.multiCupBLE`) - Singleton for multi-cup operations
+- **BLEManager** (`window.bleManager`) - Singleton for BLE operations
 - **ImageEditor** (`window.imageEditor`) - Singleton for grid state
 - **ImageProcessor** (`window.imageProcessor`) - Singleton for image processing
 - **UI Functions** (`window.ui`) - Namespace for UI components
@@ -267,10 +221,8 @@ See [PROTOCOL_SPEC.md](PROTOCOL_SPEC.md) for complete protocol documentation.
 - [x] Multiple dithering algorithms
 - [x] Brightness/contrast/sharpening adjustments
 - [x] Image quality analysis with suggestions
-- [x] Multi-cup display system
 - [x] Animated GIF support
 - [x] Live preview with animation
-- [x] Motion overlay effects
 - [x] Skip connection mode for testing
 
 ### Planned
