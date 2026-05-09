@@ -1,0 +1,14 @@
+# Non-web content — only the static web app should ship to Vercel.
+python/
+venv/
+go/
+examples/
+generate_test_gif.py
+PROTOCOL_SPEC.md
+.gstack/
+
+# OS / editor cruft
+.DS_Store
+.idea/
+*.swp
+*.swo
