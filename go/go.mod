@@ -3,7 +3,7 @@ module github.com/ngaut/smart-mug/go
 go 1.25.0
 
 require (
-	golang.org/x/image v0.39.0
+	golang.org/x/image v0.41.0
 	tinygo.org/x/bluetooth v0.15.0
 )
 
